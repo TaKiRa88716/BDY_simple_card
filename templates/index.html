@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>排球員身分證生成器 | Volleyball Player ID Studio (79.7 x 48 mm)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Orbitron:wght@600;800;900&family=Outfit:wght@400;600;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <div class="app-header">
+        <div class="brand">
+            <div class="logo-icon">🏐</div>
+            <div>
+                <h1>排球員身分證生成器</h1>
+                <p class="subtitle">標準實體紙卡尺寸：<strong>79.7 mm × 48 mm</strong> (300 DPI 超高畫質)</p>
+            </div>
+        </div>
+
+        <!-- 頂部核心快速按鈕 -->
+        <div class="header-actions">
+            <button id="btnResetTop" class="btn btn-secondary">
+                <span class="btn-icon">🔄</span> 重新製作
+            </button>
+            <button id="btnQRTop" class="btn btn-accent">
+                <span class="btn-icon">📱</span> 生成 QR Code
+            </button>
+            <button id="btnDownloadTop" class="btn btn-primary">
+                <span class="btn-icon">💾</span> 下載圖檔 (79.7×48mm)
+            </button>
+        </div>
+    </div>
+
+    <main class="main-container">
+        <!-- 左側編輯控制面板 -->
+        <section class="control-panel">
+            <div class="panel-header">
+                <h2>🛠️ 卡片編輯與設定</h2>
+                <span class="badge">Live 數據同步</span>
+            </div>
+
+            <div class="form-tabs">
+                <button class="tab-btn active" data-tab="tab-basic">基本資料</button>
+                <button class="tab-btn" data-tab="tab-photo">球隊標誌 (Logo)</button>
+                <button class="tab-btn" data-tab="tab-theme">主題風格</button>
+                <button class="tab-btn" data-tab="tab-batch">📁 批次生成 (Excel/CSV)</button>
+            </div>
+
+            <!-- 頁籤1: 基本資料 -->
+            <div class="tab-content active" id="tab-basic">
+                <div class="form-group">
+                    <label for="playerName">選手姓名</label>
+                    <input type="text" id="playerName" value="孔鏘" placeholder="例: 孔鏘">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-7">
+                        <label for="teamName">隊伍名稱</label>
+                        <input type="text" id="teamName" value="巴豆妖排球隊" placeholder="例: 巴豆妖排球隊">
+                    </div>
+                    <div class="form-group col-5">
+                        <label for="jerseyNumber">球衣背號</label>
+                        <input type="text" id="jerseyNumber" value="03" placeholder="例: 03">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="idNumber">登錄證號 (ID No.)</label>
+                        <input type="text" id="idNumber" value="BDYxTAKO" placeholder="例: BDYxTAKO">
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="associationName">發證單位 / 標頭名稱</label>
+                        <input type="text" id="associationName" value="TAKO盃 - 第10屆" placeholder="例: TAKO盃 - 第10屆">
+                    </div>
+                </div>
+
+                <hr class="divider">
+
+                <div class="form-row">
+                    <div class="form-group col-4">
+                        <label for="validThru">有效期限 (VALID THRU)</label>
+                        <input type="text" id="validThru" value="2026/09/05" placeholder="例: 2026/09/05">
+                    </div>
+                    <div class="form-group col-8">
+                        <label for="footerNote2">底部認證文字 (Line 2)</label>
+                        <input type="text" id="footerNote2" value="NVA Club House 排球俱樂部" placeholder="例: NVA Club House 排球俱樂部">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 頁籤2: 球隊標誌 (Logo) -->
+            <div class="tab-content" id="tab-photo">
+                <div class="form-group">
+                    <label>上傳球隊 Logo (支援 PNG, JPG, JPEG, WEBP - 1:1 正方形或透明背景)</label>
+                    <div class="file-upload-box" id="singleLogoDropZone">
+                        <input type="file" id="teamLogoUpload" accept="image/png, image/jpeg, image/jpg, image/webp, image/svg+xml">
+                        <div class="upload-label">
+                            <span class="upload-icon">🛡️</span>
+                            <strong>點擊或拖曳球隊 Logo 圖檔至此上傳</strong>
+                            <span class="upload-hint">自動配對當前隊伍並儲存至 隊伍Logo/</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>已偵測 / 就緒的隊伍 Logo 清單：</label>
+                    <div class="detected-logos-box" id="detectedLogosList">
+                        <!-- 動態插入已讀取的隊伍 Logo 標籤 -->
+                    </div>
+                </div>
+
+                <div class="photo-controls" id="logoControls">
+                    <div class="form-group">
+                        <label for="photoZoom">Logo 縮放 (<span id="zoomVal">100%</span>)</label>
+                        <input type="range" id="photoZoom" min="50" max="250" value="100">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="photoOffsetX">左右平移</label>
+                            <input type="range" id="photoOffsetX" min="-100" max="100" value="0">
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="photoOffsetY">上下平移</label>
+                            <input type="range" id="photoOffsetY" min="-100" max="100" value="0">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 頁籤3: 主題風格 -->
+            <div class="tab-content" id="tab-theme">
+                <div class="form-group">
+                    <label>預設隊伍配色主題</label>
+                    <div class="preset-grid">
+                        <button class="preset-btn active" data-preset="karasuno">
+                            <span class="swatch"
+                                style="background: linear-gradient(135deg, #111 50%, #ff6600 50%);"></span>
+                            <span>烏野黑橘</span>
+                        </button>
+                        <button class="preset-btn" data-preset="nekoma">
+                            <span class="swatch"
+                                style="background: linear-gradient(135deg, #cc0000 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
+                            <span>音駒紅白</span>
+                        </button>
+                        <button class="preset-btn" data-preset="aoba">
+                            <span class="swatch"
+                                style="background: linear-gradient(135deg, #00a896 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
+                            <span>青葉城西</span>
+                        </button>
+                        <button class="preset-btn" data-preset="fukurodani">
+                            <span class="swatch"
+                                style="background: linear-gradient(135deg, #1a1a1a 50%, #e6ad00 50%); border: 1px solid #ddd;"></span>
+                            <span>梟谷黑金</span>
+                        </button>
+                        <button class="preset-btn" data-preset="inarizaki">
+                            <span class="swatch"
+                                style="background: linear-gradient(135deg, #111 50%, #888888 50%); border: 1px solid #ddd;"></span>
+                            <span>稻荷崎黑灰</span>
+                        </button>
+                        <button class="preset-btn" data-preset="shiratorizawa">
+                            <span class="swatch"
+                                style="background: linear-gradient(135deg, #501898 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
+                            <span>白鳥澤紫白</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-4">
+                        <label for="primaryColor">主色調 (Primary)</label>
+                        <input type="color" id="primaryColor" value="#f8fafc">
+                    </div>
+                    <div class="form-group col-4">
+                        <label for="accentColor">重點強調色 (Accent)</label>
+                        <input type="color" id="accentColor" value="#ff6b00">
+                    </div>
+                    <div class="form-group col-4">
+                        <label for="textColor">文字顏色 (Text Color)</label>
+                        <input type="color" id="textColor" value="#111111">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="cardPattern">底紋防偽花紋</label>
+                        <select id="cardPattern">
+                            <option value="volleyball">排球網狀 (Volleyball Mesh)</option>
+                            <option value="stripes">動感斜線 (Speed Lines)</option>
+                            <option value="dots">科技點陣 (Tech Dots)</option>
+                            <option value="clean">極簡素雅 (Clean)</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="cardBorderRadius">邊框導角</label>
+                        <select id="cardBorderRadius">
+                            <option value="rounded">圓角 (Rounded)</option>
+                            <option value="sharp">直角 (Sharp Edge)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 頁籤4: 批次生成 (Excel / CSV) -->
+            <div class="tab-content" id="tab-batch">
+                <div class="batch-upload-section">
+                    <label>1. 上傳名單檔案 (.xlsx / .xls / .csv)</label>
+                    <div class="file-upload-box batch-drop-box" id="batchDropZone">
+                        <input type="file" id="batchFileUpload" accept=".xlsx, .xls, .csv">
+                        <div class="upload-label">
+                            <span class="upload-icon">📊</span>
+                            <strong>點擊或拖曳 Excel/CSV 檔案至此</strong>
+                            <span class="upload-hint">包含「隊伍名稱」、「隊員名稱」、「背號」欄位</span>
+                        </div>
+                    </div>
+
+                    <div class="form-row" style="margin-top: 10px;">
+                        <div class="form-group col-12">
+                            <label>2. 批次球隊 Logo 圖檔上傳 (可選，自動依檔名配對隊伍)</label>
+                            <div class="file-upload-box batch-drop-box" id="batchLogoDropZone" style="padding: 12px;">
+                                <input type="file" id="batchLogoUpload" accept="image/png, image/jpeg, image/jpg, image/webp" multiple>
+                                <div class="upload-label">
+                                    <span class="upload-icon">🛡️</span>
+                                    <span style="font-size: 0.85rem;">拖曳或點選上傳球隊 Logo (如: <code>巴豆妖.png</code>, <code>野原家.jpg</code>)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="batch-note">
+                        <span>💡 自動配對：系統會自動將 <code>隊伍Logo/</code> 資料夾內或上傳之圖檔（如 <code>巴豆妖.png</code>、<code>野原家.jpg</code>）精準套入各隊卡片！</span>
+                    </div>
+                </div>
+
+                <!-- 批次名單預覽容器 -->
+                <div class="batch-preview-container" id="batchPreviewContainer" style="display: none;">
+                    <div class="batch-list-header">
+                        <h4>📋 匯入隊員名單 (<span id="batchCountBadge">0</span> 人)</h4>
+                        <button type="button" class="btn btn-sm btn-outline" id="btnClearBatch">清空名單</button>
+                    </div>
+
+                    <div class="batch-table-wrapper">
+                        <table class="batch-table" id="batchTable">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>隊伍名稱</th>
+                                    <th>選手姓名</th>
+                                    <th>背號 (自動補零)</th>
+                                    <th>輸出檔名 (results/)</th>
+                                    <th>狀態</th>
+                                </tr>
+                            </thead>
+                            <tbody id="batchTableBody">
+                                <!-- 動態渲染列 -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 批次生成進度條 -->
+                    <div class="batch-progress-box" id="batchProgressBox" style="display: none;">
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="batchProgressBar" style="width: 0%;"></div>
+                        </div>
+                        <div class="progress-info">
+                            <span id="batchProgressText">準備中...</span>
+                            <span id="batchProgressPercent">0%</span>
+                        </div>
+                    </div>
+
+                    <!-- 批次動作按鈕群 -->
+                    <div class="batch-actions">
+                        <button type="button" class="btn btn-primary btn-block btn-lg" id="btnStartBatch">
+                            <span class="btn-icon">⚡</span> 開始批次生成並儲存至 results
+                        </button>
+                        <div class="batch-result-actions" id="batchResultActions" style="display: none;">
+                            <button type="button" class="btn btn-accent col-6" id="btnOpenResults">
+                                <span class="btn-icon">📂</span> 開啟 results 資料夾
+                            </button>
+                            <button type="button" class="btn btn-secondary col-6" id="btnDownloadZip">
+                                <span class="btn-icon">📦</span> 下載全部 ZIP 壓縮包
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 控制區底部主要動作鈕 -->
+            <div class="panel-actions">
+                <button id="btnQR" class="btn btn-accent btn-block">
+                    <span class="btn-icon">📱</span> 生成 QR Code (手機掃碼看圖)
+                </button>
+                <button id="btnReset" class="btn btn-secondary btn-block">
+                    <span class="btn-icon">🔄</span> 重新製作 (載入範例)
+                </button>
+                <button id="btnDownload" class="btn btn-primary btn-block btn-lg">
+                    <span class="btn-icon">💾</span> 下載圖檔 (79.7 × 48 mm)
+                </button>
+            </div>
+        </section>
+
+        <!-- 右側即時卡片預覽區 -->
+        <section class="preview-panel">
+            <div class="preview-header">
+                <div class="preview-title">
+                    <h3>📷 身分證即時預覽 (Live Card Preview)</h3>
+                    <p>實體尺寸標籤：79.7 mm × 48 mm | 300 DPI 超高清輸出</p>
+                </div>
+                <div class="card-dimensions-info">
+                    <span>Aspect Ratio: 79.7 : 48</span>
+                    <span class="dim-badge">1883 × 1134 px</span>
+                </div>
+            </div>
+
+            <div class="canvas-wrapper">
+                <!-- HTML5 繪圖 Canvas -->
+                <canvas id="cardCanvas" width="1883" height="1134"></canvas>
+                <div class="card-glare"></div>
+            </div>
+
+            <!-- 快速輔助功能 -->
+            <div class="preview-actions">
+                <button id="btnQRAction" class="btn btn-accent">
+                    <span>📱 掃碼看圖 (QR Code)</span>
+                </button>
+                <button id="btnCopy" class="btn btn-outline">
+                    <span>📋 複製圖片至剪貼簿</span>
+                </button>
+                <button id="btnPrintHelp" class="btn btn-outline">
+                    <span>🖨️ 實體列印指南 (79.7×48mm)</span>
+                </button>
+            </div>
+
+            <!-- 列印說明 -->
+            <div class="print-guide" id="printGuide" style="display: none;">
+                <h4>🖨️ 79.7 mm × 48 mm 實體卡片列印建議：</h4>
+                <ul>
+                    <li><strong>圖片解析度：</strong>本系統下載之圖檔為 1883 × 1134 px，精確符合 300 DPI 印刷等級解析度。</li>
+                    <li><strong>列印設定：</strong>列印時請選擇「實際大小 (Actual Size / 100%)」，切勿選擇「適合頁面大小 (Fit to Page)」。</li>
+                    <li><strong>紙張推薦：</strong>建議使用 250g~300g 磅數之相片紙、亮面卡紙或 PVC 身分證空白卡套進行列印。</li>
+                </ul>
+            </div>
+        </section>
+    </main>
+
+    <!-- QR Code 彈出視窗 Modal -->
+    <div class="modal-backdrop" id="qrModal" style="display: none;">
+        <div class="modal-card">
+            <button class="modal-close" id="modalClose">&times;</button>
+            <div class="modal-header">
+                <h3>📱 手機掃碼看圖 (QR Code)</h3>
+                <p>使用手機相機掃描下方 QR Code 即可線上預覽或下載這張排球員身分證</p>
+            </div>
+            <div class="modal-body">
+                <div class="qr-container">
+                    <img id="qrCodeImg" src="" alt="身分證 QR Code" />
+                </div>
+                <div class="qr-url-box">
+                    <input type="text" id="qrUrlInput" readonly value="http://127.0.0.1:5000/view_card/card_123">
+                    <button id="btnCopyUrl" class="btn btn-secondary">複製連結</button>
+                </div>
+                <div class="qr-tip">
+                    <span>💡 小提示：請確保手機與電腦連線至相同的 Wi-Fi 網絡，即可直接開啟觀看。</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="app-footer">
+        <p>Volleyball Player ID Card Studio &copy; 2026 | 地端執行版 | 79.7 mm × 48 mm 高畫質排球身分證生成器</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+
+</html>
