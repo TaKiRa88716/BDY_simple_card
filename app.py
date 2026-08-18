@@ -18,6 +18,8 @@ import csv
 import zipfile
 import subprocess
 import re
+import json
+from PIL import Image as PILImage
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
@@ -34,9 +36,13 @@ def add_header(response):
 CARDS_DIR = os.path.join(app.static_folder, 'cards')
 RESULTS_DIR = os.path.join(app.root_path, 'results')
 TEAM_LOGO_DIR = os.path.join(app.root_path, '隊伍Logo')
+CONFIG_DIR = os.path.join(app.static_folder, 'config')
+LAYOUT_PATH = os.path.join(CONFIG_DIR, 'card_layout.json')
+TEMPLATE_IMG_PATH = os.path.join(app.static_folder, 'images', 'card_template.jpg')
 os.makedirs(CARDS_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(TEAM_LOGO_DIR, exist_ok=True)
+os.makedirs(CONFIG_DIR, exist_ok=True)
 
 def sanitize_filename(name):
     """清理 Windows 檔案名稱中的非法字元"""
@@ -90,6 +96,56 @@ def upload_team_logo():
             'filename': target_name,
             'logo_url': logo_url
         })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/upload_template', methods=['POST'])
+def upload_template():
+    """更換卡片模板底圖：存成 static/images/card_template.jpg，並同步更新版面設定檔的畫布尺寸"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': '未找到上傳圖檔'}), 400
+
+        file = request.files['file']
+        if not file or file.filename == '':
+            return jsonify({'success': False, 'error': '未選擇檔案'}), 400
+
+        try:
+            img = PILImage.open(file.stream)
+            img = img.convert('RGB')
+        except Exception:
+            return jsonify({'success': False, 'error': '無法辨識的圖片格式，請上傳 JPG / PNG / WEBP'}), 400
+
+        os.makedirs(os.path.dirname(TEMPLATE_IMG_PATH), exist_ok=True)
+        img.save(TEMPLATE_IMG_PATH, format='JPEG', quality=95)
+        width, height = img.size
+
+        # 同步更新設定檔的畫布尺寸，讓所有欄位的相對座標套用到新模板上
+        if os.path.exists(LAYOUT_PATH):
+            with open(LAYOUT_PATH, 'r', encoding='utf-8') as f:
+                layout = json.load(f)
+            layout['canvasWidth'] = width
+            layout['canvasHeight'] = height
+            with open(LAYOUT_PATH, 'w', encoding='utf-8') as f:
+                json.dump(layout, f, ensure_ascii=False, indent=2)
+
+        return jsonify({'success': True, 'width': width, 'height': height})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/save_layout', methods=['POST'])
+def save_layout():
+    """把前端調整過的欄位/Logo位置版面設定寫回 static/config/card_layout.json"""
+    try:
+        layout = request.get_json(force=True)
+        if not isinstance(layout, dict) or 'fields' not in layout or 'logo' not in layout:
+            return jsonify({'success': False, 'error': '版面設定格式不正確'}), 400
+
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(LAYOUT_PATH, 'w', encoding='utf-8') as f:
+            json.dump(layout, f, ensure_ascii=False, indent=2)
+
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

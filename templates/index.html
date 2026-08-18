@@ -45,10 +45,23 @@
                 <span class="badge">Live 數據同步</span>
             </div>
 
+            <!-- 版面工具列：更換模板底圖 / 重新載入 / 儲存版面調整 -->
+            <div class="layout-toolbar">
+                <button type="button" class="btn btn-sm btn-outline" id="btnUploadTemplate">
+                    🖼️ 更換模板圖片
+                </button>
+                <input type="file" id="templateUploadInput" accept="image/png, image/jpeg, image/jpg, image/webp" style="display:none;">
+                <button type="button" class="btn btn-sm btn-outline" id="btnRefreshTemplate">
+                    🔄 重新載入模板/設定
+                </button>
+                <button type="button" class="btn btn-sm btn-primary" id="btnSaveLayout">
+                    💾 儲存目前版面設定
+                </button>
+            </div>
+
             <div class="form-tabs">
                 <button class="tab-btn active" data-tab="tab-basic">基本資料</button>
                 <button class="tab-btn" data-tab="tab-photo">球隊標誌 (Logo)</button>
-                <button class="tab-btn" data-tab="tab-theme">主題風格</button>
                 <button class="tab-btn" data-tab="tab-batch">📁 批次生成 (Excel/CSV)</button>
             </div>
 
@@ -57,27 +70,108 @@
                 <div class="form-group">
                     <label for="playerName">選手姓名</label>
                     <input type="text" id="playerName" value="孔鏘" placeholder="例: 孔鏘">
+                    <div class="pos-control" data-field="playerName">
+                        <span class="pos-tag">文字位置</span>
+                        <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                        <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                    </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group col-7">
                         <label for="teamName">隊伍名稱</label>
                         <input type="text" id="teamName" value="巴豆妖排球隊" placeholder="例: 巴豆妖排球隊">
+                        <div class="pos-control" data-field="teamName">
+                            <span class="pos-tag">文字位置</span>
+                            <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                            <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                        </div>
                     </div>
                     <div class="form-group col-5">
                         <label for="jerseyNumber">球衣背號</label>
                         <input type="text" id="jerseyNumber" value="03" placeholder="例: 03">
+                        <div class="pos-control" data-field="jerseyNumber">
+                            <span class="pos-tag">文字位置</span>
+                            <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                            <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                        </div>
                     </div>
                 </div>
 
+                <div class="form-group">
+                    <label for="associationName">發證單位 / 標頭名稱</label>
+                    <input type="text" id="associationName" value="TAKO盃 - 第10屆" placeholder="例: TAKO盃 - 第10屆">
+                    <div class="pos-control" data-field="associationName">
+                        <span class="pos-tag">文字位置</span>
+                        <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                        <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                    </div>
+                </div>
+
+                <hr class="divider">
+
+                <!-- 登錄證號：統一編號 或 流水編號 -->
+                <div class="form-group">
+                    <label>登錄證號模式</label>
+                    <div class="id-mode-toggle">
+                        <label><input type="radio" name="idNumberMode" value="manual" checked> 統一編號（手動輸入）</label>
+                        <label><input type="radio" name="idNumberMode" value="sequential"> 流水編號（自動遞增，批次生成時每人不同）</label>
+                    </div>
+                </div>
+
+                <div class="form-group" id="idNumberManualGroup">
+                    <label for="idNumber">登錄證號 (ID No.)</label>
+                    <input type="text" id="idNumber" value="BDYxTAKO" placeholder="例: BDYxTAKO">
+                </div>
+
+                <div class="form-group" id="idNumberSequentialGroup" style="display:none;">
+                    <div class="form-row">
+                        <div class="form-group col-4">
+                            <label for="idSeqPrefix">前綴</label>
+                            <input type="text" id="idSeqPrefix" value="BDY-" placeholder="例: BDY-">
+                        </div>
+                        <div class="form-group col-4">
+                            <label for="idSeqStart">起始號碼</label>
+                            <input type="number" id="idSeqStart" value="1" min="0">
+                        </div>
+                        <div class="form-group col-4">
+                            <label for="idSeqDigits">補零位數</label>
+                            <input type="number" id="idSeqDigits" value="3" min="1" max="10">
+                        </div>
+                    </div>
+                    <label for="idSeqSuffix">後綴（選填）</label>
+                    <input type="text" id="idSeqSuffix" placeholder="例: -TAKO">
+                    <label>預覽（單張預覽用起始號碼；批次生成時每人依序遞增）</label>
+                    <div class="id-seq-preview" id="idSeqPreview">BDY-001</div>
+                </div>
+
+                <div class="pos-control" data-field="idNumber">
+                    <span class="pos-tag">文字位置</span>
+                    <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                    <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label"><input type="checkbox" id="barcodeEnabled" checked> 顯示可掃描條碼（依登錄證號自動產生 Code128）</label>
+                </div>
                 <div class="form-row">
                     <div class="form-group col-6">
-                        <label for="idNumber">登錄證號 (ID No.)</label>
-                        <input type="text" id="idNumber" value="BDYxTAKO" placeholder="例: BDYxTAKO">
+                        <label for="barcodeBoxX">條碼 X 位置 (%)</label>
+                        <input type="number" id="barcodeBoxX" min="0" max="100" step="0.1">
                     </div>
                     <div class="form-group col-6">
-                        <label for="associationName">發證單位 / 標頭名稱</label>
-                        <input type="text" id="associationName" value="TAKO盃 - 第10屆" placeholder="例: TAKO盃 - 第10屆">
+                        <label for="barcodeBoxY">條碼 Y 位置 (%)</label>
+                        <input type="number" id="barcodeBoxY" min="0" max="100" step="0.1">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="barcodeBoxW">條碼寬度 (px)</label>
+                        <input type="number" id="barcodeBoxW" min="10" step="1">
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="barcodeBoxH">條碼高度 (px)</label>
+                        <input type="number" id="barcodeBoxH" min="10" step="1">
                     </div>
                 </div>
 
@@ -87,10 +181,77 @@
                     <div class="form-group col-4">
                         <label for="validThru">有效期限 (VALID THRU)</label>
                         <input type="text" id="validThru" value="2026/09/05" placeholder="例: 2026/09/05">
+                        <div class="pos-control" data-field="validThru">
+                            <span class="pos-tag">文字位置</span>
+                            <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                            <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                        </div>
                     </div>
                     <div class="form-group col-8">
                         <label for="footerNote2">底部認證文字 (Line 2)</label>
                         <input type="text" id="footerNote2" value="NVA Club House 排球俱樂部" placeholder="例: NVA Club House 排球俱樂部">
+                        <div class="pos-control" data-field="footerNote2">
+                            <span class="pos-tag">文字位置</span>
+                            <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                            <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="divider">
+
+                <!-- 卡片上的固定標籤/裝飾文字：不是玩家資料，但一樣可以編輯內容與位置 -->
+                <div class="form-group">
+                    <label>🏷️ 卡片標籤文字（固定裝飾文字，可自行編輯內容或位置）</label>
+                </div>
+
+                <div class="form-group">
+                    <label for="staticField_associationSubtitle">標頭英文副標</label>
+                    <input type="text" id="staticField_associationSubtitle" class="static-text-input" data-field="associationSubtitle">
+                    <div class="pos-control" data-field="associationSubtitle">
+                        <span class="pos-tag">文字位置</span>
+                        <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                        <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="staticField_teamNameLabel">隊伍名稱區塊標籤</label>
+                    <input type="text" id="staticField_teamNameLabel" class="static-text-input" data-field="teamNameLabel">
+                    <div class="pos-control" data-field="teamNameLabel">
+                        <span class="pos-tag">文字位置</span>
+                        <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                        <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="staticField_teamSubtitle">隊伍名稱區塊副標</label>
+                    <input type="text" id="staticField_teamSubtitle" class="static-text-input" data-field="teamSubtitle">
+                    <div class="pos-control" data-field="teamSubtitle">
+                        <span class="pos-tag">文字位置</span>
+                        <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                        <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="staticField_validThruLabel">有效期限標籤</label>
+                    <input type="text" id="staticField_validThruLabel" class="static-text-input" data-field="validThruLabel">
+                    <div class="pos-control" data-field="validThruLabel">
+                        <span class="pos-tag">文字位置</span>
+                        <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                        <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="staticField_locationLabel">底部認證標籤</label>
+                    <input type="text" id="staticField_locationLabel" class="static-text-input" data-field="locationLabel">
+                    <div class="pos-control" data-field="locationLabel">
+                        <span class="pos-tag">文字位置</span>
+                        <label>X <input type="number" class="pos-x" min="0" max="100" step="0.1"></label>
+                        <label>Y <input type="number" class="pos-y" min="0" max="100" step="0.1"></label>
                     </div>
                 </div>
             </div>
@@ -132,82 +293,60 @@
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- 頁籤3: 主題風格 -->
-            <div class="tab-content" id="tab-theme">
+                <hr class="divider">
+
                 <div class="form-group">
-                    <label>預設隊伍配色主題</label>
-                    <div class="preset-grid">
-                        <button class="preset-btn active" data-preset="karasuno">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #111 50%, #ff6600 50%);"></span>
-                            <span>烏野黑橘</span>
-                        </button>
-                        <button class="preset-btn" data-preset="nekoma">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #cc0000 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
-                            <span>音駒紅白</span>
-                        </button>
-                        <button class="preset-btn" data-preset="aoba">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #00a896 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
-                            <span>青葉城西</span>
-                        </button>
-                        <button class="preset-btn" data-preset="fukurodani">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #1a1a1a 50%, #e6ad00 50%); border: 1px solid #ddd;"></span>
-                            <span>梟谷黑金</span>
-                        </button>
-                        <button class="preset-btn" data-preset="inarizaki">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #111 50%, #888888 50%); border: 1px solid #ddd;"></span>
-                            <span>稻荷崎黑灰</span>
-                        </button>
-                        <button class="preset-btn" data-preset="shiratorizawa">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #501898 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
-                            <span>白鳥澤紫白</span>
-                        </button>
-                    </div>
+                    <label>🖼️ Logo 框架設定（框架在卡片上的位置，圖片只會顯示在框架範圍內）</label>
                 </div>
-
-                <div class="form-row">
-                    <div class="form-group col-4">
-                        <label for="primaryColor">主色調 (Primary)</label>
-                        <input type="color" id="primaryColor" value="#f8fafc">
-                    </div>
-                    <div class="form-group col-4">
-                        <label for="accentColor">重點強調色 (Accent)</label>
-                        <input type="color" id="accentColor" value="#ff6b00">
-                    </div>
-                    <div class="form-group col-4">
-                        <label for="textColor">文字顏色 (Text Color)</label>
-                        <input type="color" id="textColor" value="#111111">
-                    </div>
-                </div>
-
                 <div class="form-row">
                     <div class="form-group col-6">
-                        <label for="cardPattern">底紋防偽花紋</label>
-                        <select id="cardPattern">
-                            <option value="volleyball">排球網狀 (Volleyball Mesh)</option>
-                            <option value="stripes">動感斜線 (Speed Lines)</option>
-                            <option value="dots">科技點陣 (Tech Dots)</option>
-                            <option value="clean">極簡素雅 (Clean)</option>
-                        </select>
+                        <label for="logoBoxX">框架 X 位置 (%)</label>
+                        <input type="number" id="logoBoxX" min="0" max="100" step="0.1">
                     </div>
                     <div class="form-group col-6">
-                        <label for="cardBorderRadius">邊框導角</label>
-                        <select id="cardBorderRadius">
-                            <option value="rounded">圓角 (Rounded)</option>
-                            <option value="sharp">直角 (Sharp Edge)</option>
-                        </select>
+                        <label for="logoBoxY">框架 Y 位置 (%)</label>
+                        <input type="number" id="logoBoxY" min="0" max="100" step="0.1">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="logoBoxW">框架寬度 (px)</label>
+                        <input type="number" id="logoBoxW" min="10" step="1">
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="logoBoxH">框架高度 (px)</label>
+                        <input type="number" id="logoBoxH" min="10" step="1">
+                    </div>
+                </div>
+                <p class="hint-text">調整寬度/高度會以框架中心點為準縮放，不會移動框架位置。</p>
+
+                <hr class="divider">
+
+                <div class="form-group">
+                    <label>🎨 框架邊框與陰影</label>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label class="checkbox-label"><input type="checkbox" id="logoBorderEnabled" checked> 顯示邊框</label>
+                    </div>
+                    <div class="form-group col-6">
+                        <label class="checkbox-label"><input type="checkbox" id="logoShadowEnabled" checked> 顯示陰影</label>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="logoBorderColor">邊框顏色</label>
+                        <input type="color" id="logoBorderColor" value="#4b1a8f">
+                    </div>
+                    <div class="form-group col-6">
+                        <label>&nbsp;</label>
+                        <button type="button" class="btn btn-sm btn-outline" id="btnAutoBorderColor">🎨 依模板自動偵測顏色</button>
                     </div>
                 </div>
             </div>
 
-            <!-- 頁籤4: 批次生成 (Excel / CSV) -->
+            <!-- 頁籤3: 批次生成 (Excel / CSV) -->
             <div class="tab-content" id="tab-batch">
                 <div class="batch-upload-section">
                     <label>1. 上傳名單檔案 (.xlsx / .xls / .csv)</label>
@@ -313,14 +452,14 @@
                     <p>實體尺寸標籤：79.7 mm × 48 mm | 300 DPI 超高清輸出</p>
                 </div>
                 <div class="card-dimensions-info">
-                    <span>Aspect Ratio: 79.7 : 48</span>
-                    <span class="dim-badge">1883 × 1134 px</span>
+                    <span>模板底圖套版輸出</span>
+                    <span class="dim-badge">2688 × 1598 px</span>
                 </div>
             </div>
 
             <div class="canvas-wrapper">
-                <!-- HTML5 繪圖 Canvas -->
-                <canvas id="cardCanvas" width="1883" height="1134"></canvas>
+                <!-- HTML5 繪圖 Canvas (實際尺寸由 static/config/card_layout.json 決定) -->
+                <canvas id="cardCanvas" width="2688" height="1598"></canvas>
                 <div class="card-glare"></div>
             </div>
 
@@ -341,7 +480,7 @@
             <div class="print-guide" id="printGuide" style="display: none;">
                 <h4>🖨️ 79.7 mm × 48 mm 實體卡片列印建議：</h4>
                 <ul>
-                    <li><strong>圖片解析度：</strong>本系統下載之圖檔為 1883 × 1134 px，精確符合 300 DPI 印刷等級解析度。</li>
+                    <li><strong>圖片解析度：</strong>本系統下載之圖檔為 2688 × 1598 px（依模板底圖原始尺寸輸出），已達 300 DPI 印刷等級解析度。</li>
                     <li><strong>列印設定：</strong>列印時請選擇「實際大小 (Actual Size / 100%)」，切勿選擇「適合頁面大小 (Fit to Page)」。</li>
                     <li><strong>紙張推薦：</strong>建議使用 250g~300g 磅數之相片紙、亮面卡紙或 PVC 身分證空白卡套進行列印。</li>
                 </ul>
@@ -376,6 +515,7 @@
         <p>Volleyball Player ID Card Studio &copy; 2026 | 地端執行版 | 79.7 mm × 48 mm 高畫質排球身分證生成器</p>
     </footer>
 
+    <script src="{{ url_for('static', filename='js/vendor/jsbarcode.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 

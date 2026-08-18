@@ -233,10 +233,24 @@ body {
     border: 1px solid rgba(0, 229, 255, 0.3);
 }
 
+/* Layout Toolbar: template swap / refresh / save */
+.layout-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.layout-toolbar .btn {
+    flex: 1;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
 /* Form Tabs */
 .form-tabs {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     background: rgba(0, 0, 0, 0.25);
     padding: 4px;
     border-radius: var(--radius-md);
@@ -305,6 +319,80 @@ body {
     gap: 12px;
     width: 100%;
     box-sizing: border-box;
+}
+
+/* Inline text-position fine-tune, shown under a field's input */
+.pos-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+}
+
+.pos-control .pos-tag {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.pos-control label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    flex: 1;
+    min-width: 0;
+}
+
+.pos-control input[type="number"] {
+    width: 100%;
+    min-width: 0;
+    padding: 4px 6px;
+    font-size: 0.78rem;
+}
+
+.id-mode-toggle {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.id-mode-toggle label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-main);
+    cursor: pointer;
+}
+
+.id-seq-preview {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px dashed var(--panel-border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-family: "Orbitron", monospace;
+    font-size: 0.9rem;
+    color: var(--accent-cyan);
+}
+
+.hint-text {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin: -4px 0 0 0;
+}
+
+.checkbox-label {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
 }
 
 .form-row > * {
@@ -410,51 +498,6 @@ input[type="color"] {
     border: none;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     margin: 0.5rem 0;
-}
-
-/* Preset Theme Buttons */
-.preset-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    width: 100%;
-}
-
-.preset-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 6px;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid var(--panel-border);
-    border-radius: var(--radius-sm);
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.preset-btn:hover {
-    border-color: var(--text-muted);
-    color: var(--text-main);
-}
-
-.preset-btn.active {
-    border-color: var(--primary);
-    background: rgba(255, 107, 0, 0.15);
-    color: #ffffff;
-    font-weight: 700;
-}
-
-.swatch {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    display: inline-block;
-    flex-shrink: 0;
 }
 
 .panel-actions {

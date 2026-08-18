@@ -1,0 +1,310 @@
+{
+  "_comment": "Phase 1 config-driven card layout. All positions/sizes are fractions (0-1) of canvasWidth/canvasHeight so they stay valid if the template image is ever swapped for one with different pixel dimensions. Phase 2's GUI editor will read and overwrite this same file.",
+  "templateImage": "/static/images/card_template.jpg",
+  "canvasWidth": 2688,
+  "canvasHeight": 1598,
+  "logo": {
+    "id": "teamLogo",
+    "box": {
+      "x": 0.5544,
+      "y": 0.2003,
+      "w": 0.4055,
+      "h": 0.7165
+    },
+    "fit": "contain",
+    "placeholderText": "隊伍 LOGO",
+    "placeholderColor": "#9a8fb0",
+    "border": {
+      "enabled": true,
+      "color": "auto",
+      "widthFrac": 0.005
+    },
+    "shadow": {
+      "enabled": true,
+      "color": "rgba(0,0,0,0.35)",
+      "blurFrac": 0.012,
+      "offsetXFrac": 0,
+      "offsetYFrac": 0.004
+    }
+  },
+  "barcode": {
+    "enabled": true,
+    "sourceKey": "idNumber",
+    "format": "CODE128",
+    "box": {
+      "x": 0.0372,
+      "y": 0.645,
+      "w": 0.13,
+      "h": 0.04
+    },
+    "background": "#ffffff",
+    "lineColor": "#1a1a1a"
+  },
+  "fields": [
+    {
+      "id": "associationName",
+      "source": {
+        "mode": "input",
+        "key": "associationName"
+      },
+      "prefix": "🏐  ",
+      "position": {
+        "x": 0.0319,
+        "y": 0.0617
+      },
+      "align": {
+        "h": "left",
+        "v": "middle"
+      },
+      "font": {
+        "family": "\"Noto Sans TC\", sans-serif",
+        "weight": 900,
+        "sizeFrac": 0.0423
+      },
+      "color": "#ffffff",
+      "maxWidthFrac": 0.5,
+      "minSizeFrac": 0.022
+    },
+    {
+      "id": "associationSubtitle",
+      "source": {
+        "mode": "static",
+        "text": "OFFICIAL ATHLETE IDENTIFICATION CARD"
+      },
+      "position": {
+        "x": 0.0319,
+        "y": 0.1076
+      },
+      "align": {
+        "h": "left",
+        "v": "middle"
+      },
+      "font": {
+        "family": "\"Orbitron\", sans-serif",
+        "weight": 700,
+        "sizeFrac": 0.0212
+      },
+      "color": "#c9a9f5"
+    },
+    {
+      "id": "jerseyNumber",
+      "source": {
+        "mode": "input",
+        "key": "jerseyNumber"
+      },
+      "prefix": "#",
+      "position": {
+        "x": 0.1208,
+        "y": 0.2872
+      },
+      "align": {
+        "h": "center",
+        "v": "middle"
+      },
+      "font": {
+        "family": "\"Orbitron\", sans-serif",
+        "weight": 900,
+        "sizeFrac": 0.09
+      },
+      "color": "#ffffff"
+    },
+    {
+      "id": "playerName",
+      "source": {
+        "mode": "input",
+        "key": "playerName"
+      },
+      "position": {
+        "x": 0.2206,
+        "y": 0.2872
+      },
+      "align": {
+        "h": "left",
+        "v": "middle"
+      },
+      "font": {
+        "family": "\"Noto Sans TC\", \"Outfit\", sans-serif",
+        "weight": 900,
+        "sizeFrac": 0.1014
+      },
+      "color": "#1a1a1a",
+      "maxWidthFrac": 0.3189,
+      "minSizeFrac": 0.0529
+    },
+    {
+      "id": "teamNameLabel",
+      "source": {
+        "mode": "static",
+        "text": "TEAM NAME / 隊伍名稱"
+      },
+      "position": {
+        "x": 0.0718,
+        "y": 0.4364
+      },
+      "align": {
+        "h": "left",
+        "v": "top"
+      },
+      "font": {
+        "family": "\"Orbitron\", \"Noto Sans TC\", sans-serif",
+        "weight": 700,
+        "sizeFrac": 0.0194
+      },
+      "color": "#5b21b6"
+    },
+    {
+      "id": "teamName",
+      "source": {
+        "mode": "input",
+        "key": "teamName"
+      },
+      "position": {
+        "x": 0.0718,
+        "y": 0.4841
+      },
+      "align": {
+        "h": "left",
+        "v": "top"
+      },
+      "font": {
+        "family": "\"Noto Sans TC\", \"Outfit\", sans-serif",
+        "weight": 900,
+        "sizeFrac": 0.0582
+      },
+      "color": "#1a1a1a",
+      "maxWidthFrac": 0.4297,
+      "minSizeFrac": 0.0318
+    },
+    {
+      "id": "teamSubtitle",
+      "source": {
+        "mode": "static",
+        "text": "OFFICIAL REGISTERED ATHLETE SQUAD"
+      },
+      "position": {
+        "x": 0.0718,
+        "y": 0.5794
+      },
+      "align": {
+        "h": "left",
+        "v": "top"
+      },
+      "font": {
+        "family": "\"Orbitron\", sans-serif",
+        "weight": 700,
+        "sizeFrac": 0.0141
+      },
+      "color": "#7a6f8c"
+    },
+    {
+      "id": "idNumber",
+      "source": {
+        "mode": "input",
+        "key": "idNumber"
+      },
+      "prefix": "ID: ",
+      "position": {
+        "x": 0.0372,
+        "y": 0.6975
+      },
+      "align": {
+        "h": "left",
+        "v": "middle"
+      },
+      "font": {
+        "family": "\"Orbitron\", monospace",
+        "weight": 700,
+        "sizeFrac": 0.0194
+      },
+      "color": "#1a1a1a",
+      "maxWidthFrac": 0.14,
+      "minSizeFrac": 0.0106
+    },
+    {
+      "id": "validThruLabel",
+      "source": {
+        "mode": "static",
+        "text": "VALID THRU"
+      },
+      "position": {
+        "x": 0.1885,
+        "y": 0.6725
+      },
+      "align": {
+        "h": "left",
+        "v": "middle"
+      },
+      "font": {
+        "family": "\"Orbitron\", sans-serif",
+        "weight": 700,
+        "sizeFrac": 0.0176
+      },
+      "color": "#5b21b6"
+    },
+    {
+      "id": "validThru",
+      "source": {
+        "mode": "input",
+        "key": "validThru"
+      },
+      "position": {
+        "x": 0.1885,
+        "y": 0.7275
+      },
+      "align": {
+        "h": "left",
+        "v": "middle"
+      },
+      "font": {
+        "family": "\"Orbitron\", sans-serif",
+        "weight": 900,
+        "sizeFrac": 0.03
+      },
+      "color": "#1a1a1a"
+    },
+    {
+      "id": "locationLabel",
+      "source": {
+        "mode": "static",
+        "text": "LOCATION"
+      },
+      "position": {
+        "x": 0.0606,
+        "y": 0.8277
+      },
+      "align": {
+        "h": "left",
+        "v": "middle"
+      },
+      "font": {
+        "family": "\"Orbitron\", sans-serif",
+        "weight": 900,
+        "sizeFrac": 0.0212
+      },
+      "color": "#5b21b6"
+    },
+    {
+      "id": "footerNote2",
+      "source": {
+        "mode": "input",
+        "key": "footerNote2"
+      },
+      "position": {
+        "x": 0.1511,
+        "y": 0.8277
+      },
+      "align": {
+        "h": "left",
+        "v": "middle"
+      },
+      "font": {
+        "family": "\"Noto Sans TC\", \"Outfit\", sans-serif",
+        "weight": 900,
+        "sizeFrac": 0.03
+      },
+      "color": "#1a1a1a",
+      "maxWidthFrac": 0.3609,
+      "minSizeFrac": 0.0141
+    }
+  ]
+}

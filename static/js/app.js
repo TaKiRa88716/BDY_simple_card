@@ -1,5 +1,10 @@
 /* ==========================================================================
    Volleyball Player ID Card Studio - Core Canvas & App Logic
+   Phase 1: text/logo is drawn ON TOP of a fixed template image, using a
+   config file (static/config/card_layout.json) for every position, font,
+   color and the logo box. Nothing about *where things go* is hardcoded
+   here — that lives in the config so a future GUI editor can read/write
+   the same file without touching this code.
    ========================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -8,9 +13,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    // Canvas target dimensions (2x 300DPI scale of 941.5x567 => 1883x1134 px)
-    const CARD_WIDTH = 1883;
-    const CARD_HEIGHT = 1134;
+    const CONFIG_URL = '/static/config/card_layout.json';
+
+    // Populated once the config JSON has loaded. Canvas size mirrors the
+    // template image's native pixel size (config.canvasWidth/Height).
+    let LAYOUT = null;
+    let CARD_WIDTH = 0;
+    let CARD_HEIGHT = 0;
+    let templateImg = null;
 
     // Default Sample Data
     const DEFAULT_DATA = {
@@ -21,11 +31,6 @@ document.addEventListener('DOMContentLoaded', () => {
         associationName: 'TAKO盃 - 第10屆',
         validThru: '2026/09/05',
         footerNote2: 'NVA Club House 排球俱樂部',
-        primaryColor: '#ffffff',
-        accentColor: '#ff6b00',
-        textColor: '#111111',
-        cardPattern: 'volleyball',
-        cardBorderRadius: 'rounded',
         photoZoom: 100,
         photoOffsetX: 0,
         photoOffsetY: 0
@@ -34,16 +39,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // User Uploaded Media & Logo Cache
     let userTeamLogoImg = null;
     const teamLogoCache = new Map(); // stem/teamName -> HTMLImageElement
-
-    // Preset color themes
-    const PRESETS = {
-        karasuno: { primary: '#f8fafc', accent: '#ff6b00', text: '#111111' },
-        nekoma: { primary: '#ffffff', accent: '#cc0000', text: '#111111' },
-        aoba: { primary: '#f0fdfa', accent: '#00a896', text: '#111111' },
-        fukurodani: { primary: '#ffffff', accent: '#e6ad00', text: '#111111' },
-        inarizaki: { primary: '#f4f4f5', accent: '#18181b', text: '#111111' },
-        shiratorizawa: { primary: '#ffffff', accent: '#501898', text: '#111111' }
-    };
 
     // DOM Elements
     const fields = {
@@ -54,11 +49,6 @@ document.addEventListener('DOMContentLoaded', () => {
         associationName: document.getElementById('associationName'),
         validThru: document.getElementById('validThru'),
         footerNote2: document.getElementById('footerNote2'),
-        primaryColor: document.getElementById('primaryColor'),
-        accentColor: document.getElementById('accentColor'),
-        textColor: document.getElementById('textColor'),
-        cardPattern: document.getElementById('cardPattern'),
-        cardBorderRadius: document.getElementById('cardBorderRadius'),
         photoZoom: document.getElementById('photoZoom'),
         photoOffsetX: document.getElementById('photoOffsetX'),
         photoOffsetY: document.getElementById('photoOffsetY'),
@@ -152,8 +142,378 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // Core Card Render Engine (HTML5 Canvas)
+    // Config-Driven Render Engine (HTML5 Canvas)
     // ==========================================
+
+    async function loadLayoutConfig() {
+        // Cache-busted on every call so a replaced template image / edited config
+        // is always picked up immediately (no-store on the server is not always
+        // enough to stop a browser's own image cache).
+        const cacheBust = `v=${Date.now()}`;
+        const res = await fetch(`${CONFIG_URL}?${cacheBust}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`無法載入版面設定檔: ${res.status}`);
+        const config = await res.json();
+
+        const img = await new Promise((resolve, reject) => {
+            const im = new Image();
+            im.onload = () => resolve(im);
+            im.onerror = () => reject(new Error(`無法載入模板圖片: ${config.templateImage}`));
+            im.src = `${config.templateImage}?${cacheBust}`;
+        });
+
+        LAYOUT = config;
+        templateImg = img;
+        CARD_WIDTH = config.canvasWidth;
+        CARD_HEIGHT = config.canvasHeight;
+        canvas.width = CARD_WIDTH;
+        canvas.height = CARD_HEIGHT;
+        resolveAutoBorderColorIfNeeded();
+    }
+
+    async function reloadTemplateImageOnly() {
+        // Used after a template upload: config JSON on disk already has the new
+        // canvasWidth/Height (server updated it), so just refresh the bitmap.
+        const cacheBust = `v=${Date.now()}`;
+        const img = await new Promise((resolve, reject) => {
+            const im = new Image();
+            im.onload = () => resolve(im);
+            im.onerror = () => reject(new Error('無法載入模板圖片'));
+            im.src = `${LAYOUT.templateImage}?${cacheBust}`;
+        });
+        templateImg = img;
+        resolveAutoBorderColorIfNeeded();
+    }
+
+    // Only resolves when the border color is still the 'auto' sentinel — a
+    // manually-picked color (or one already resolved) is left alone so the
+    // explicit "🎨 自動偵測顏色" button stays the only way to override it later.
+    function resolveAutoBorderColorIfNeeded() {
+        if (!LAYOUT || !LAYOUT.logo || !LAYOUT.logo.border) return;
+        if (LAYOUT.logo.border.color === 'auto') {
+            LAYOUT.logo.border.color = detectTemplateAccentColor();
+        }
+    }
+
+    // ==========================================
+    // Layout Controls: template swap/refresh/save + inline field position tuning
+    // ==========================================
+
+    function syncLayoutControlsFromLAYOUT() {
+        if (!LAYOUT) return;
+        LAYOUT.fields.forEach(fc => {
+            const el = document.querySelector(`.pos-control[data-field="${fc.id}"]`);
+            if (el) {
+                const xInput = el.querySelector('.pos-x');
+                const yInput = el.querySelector('.pos-y');
+                if (xInput) xInput.value = (fc.position.x * 100).toFixed(1);
+                if (yInput) yInput.value = (fc.position.y * 100).toFixed(1);
+            }
+            if (fc.source.mode === 'static') {
+                const textInput = document.querySelector(`.static-text-input[data-field="${fc.id}"]`);
+                if (textInput) textInput.value = fc.source.text;
+            }
+        });
+
+        const box = LAYOUT.logo.box;
+        const logoBoxX = document.getElementById('logoBoxX');
+        const logoBoxY = document.getElementById('logoBoxY');
+        const logoBoxW = document.getElementById('logoBoxW');
+        const logoBoxH = document.getElementById('logoBoxH');
+        if (logoBoxX) logoBoxX.value = (box.x * 100).toFixed(1);
+        if (logoBoxY) logoBoxY.value = (box.y * 100).toFixed(1);
+        if (logoBoxW) logoBoxW.value = Math.round(box.w * CARD_WIDTH);
+        if (logoBoxH) logoBoxH.value = Math.round(box.h * CARD_HEIGHT);
+
+        const border = LAYOUT.logo.border || {};
+        const shadow = LAYOUT.logo.shadow || {};
+        const logoBorderEnabled = document.getElementById('logoBorderEnabled');
+        const logoBorderColor = document.getElementById('logoBorderColor');
+        const logoShadowEnabled = document.getElementById('logoShadowEnabled');
+        if (logoBorderEnabled) logoBorderEnabled.checked = border.enabled !== false;
+        if (logoBorderColor && border.color && border.color !== 'auto') logoBorderColor.value = border.color;
+        if (logoShadowEnabled) logoShadowEnabled.checked = shadow.enabled !== false;
+
+        if (LAYOUT.barcode) {
+            const bcBox = LAYOUT.barcode.box;
+            const barcodeEnabled = document.getElementById('barcodeEnabled');
+            const barcodeBoxX = document.getElementById('barcodeBoxX');
+            const barcodeBoxY = document.getElementById('barcodeBoxY');
+            const barcodeBoxW = document.getElementById('barcodeBoxW');
+            const barcodeBoxH = document.getElementById('barcodeBoxH');
+            if (barcodeEnabled) barcodeEnabled.checked = LAYOUT.barcode.enabled !== false;
+            if (barcodeBoxX) barcodeBoxX.value = (bcBox.x * 100).toFixed(1);
+            if (barcodeBoxY) barcodeBoxY.value = (bcBox.y * 100).toFixed(1);
+            if (barcodeBoxW) barcodeBoxW.value = Math.round(bcBox.w * CARD_WIDTH);
+            if (barcodeBoxH) barcodeBoxH.value = Math.round(bcBox.h * CARD_HEIGHT);
+        }
+    }
+
+    function updateFieldPosition(fieldId, axis, percentValue) {
+        if (!LAYOUT) return;
+        const num = parseFloat(percentValue);
+        if (isNaN(num)) return;
+        const fc = LAYOUT.fields.find(f => f.id === fieldId);
+        if (!fc) return;
+        fc.position[axis] = num / 100;
+        renderCard();
+    }
+
+    function updateStaticFieldText(fieldId, text) {
+        if (!LAYOUT) return;
+        const fc = LAYOUT.fields.find(f => f.id === fieldId);
+        if (!fc) return;
+        fc.source.text = text;
+        renderCard();
+    }
+
+    function updateLogoBoxAxis(axis, percentValue) {
+        if (!LAYOUT) return;
+        const num = parseFloat(percentValue);
+        if (isNaN(num)) return;
+        LAYOUT.logo.box[axis] = num / 100;
+        renderCard();
+    }
+
+    // Resize the logo frame in absolute pixels, keeping its CENTER point fixed
+    // (growing/shrinking from the corner made the box visually "move", which
+    // was confusing — resizing now never changes where the frame appears to sit).
+    // Resizes a {x,y,w,h} box (fractions) in absolute pixels while keeping its
+    // CENTER point fixed, then re-syncs the box's own X/Y % inputs (they shift
+    // as a side-effect of resizing from the center instead of the corner).
+    // Shared by the logo frame and the barcode box.
+    function resizeBoxKeepingCenter(box, axis, pxValue, xInputId, yInputId) {
+        if (!box || !CARD_WIDTH || !CARD_HEIGHT) return false;
+        const num = parseFloat(pxValue);
+        if (isNaN(num) || num <= 0) return false;
+
+        const centerX = box.x + box.w / 2;
+        const centerY = box.y + box.h / 2;
+
+        if (axis === 'w') {
+            box.w = num / CARD_WIDTH;
+            box.x = centerX - box.w / 2;
+        } else {
+            box.h = num / CARD_HEIGHT;
+            box.y = centerY - box.h / 2;
+        }
+
+        // Only re-sync X/Y — leave the W/H inputs alone so we don't fight the
+        // user's cursor while they're still typing into them.
+        const xInput = document.getElementById(xInputId);
+        const yInput = document.getElementById(yInputId);
+        if (xInput) xInput.value = (box.x * 100).toFixed(1);
+        if (yInput) yInput.value = (box.y * 100).toFixed(1);
+        return true;
+    }
+
+    function updateLogoBoxSize(axis, pxValue) {
+        if (!LAYOUT) return;
+        if (resizeBoxKeepingCenter(LAYOUT.logo.box, axis, pxValue, 'logoBoxX', 'logoBoxY')) renderCard();
+    }
+
+    function updateBarcodeBoxAxis(axis, percentValue) {
+        if (!LAYOUT) return;
+        const num = parseFloat(percentValue);
+        if (isNaN(num)) return;
+        LAYOUT.barcode.box[axis] = num / 100;
+        renderCard();
+    }
+
+    function updateBarcodeBoxSize(axis, pxValue) {
+        if (!LAYOUT) return;
+        if (resizeBoxKeepingCenter(LAYOUT.barcode.box, axis, pxValue, 'barcodeBoxX', 'barcodeBoxY')) renderCard();
+    }
+
+    // Samples the template image for its dominant "accent" color (skips
+    // near-white/near-black/near-gray pixels) so the logo border can auto-match
+    // whatever template is currently loaded, instead of a hardcoded color.
+    function detectTemplateAccentColor() {
+        if (!templateImg) return '#4b1a8f';
+        const sampleW = 200;
+        const sampleH = Math.max(1, Math.round(sampleW * (templateImg.naturalHeight / templateImg.naturalWidth)));
+        const off = document.createElement('canvas');
+        off.width = sampleW;
+        off.height = sampleH;
+        const octx = off.getContext('2d');
+        octx.drawImage(templateImg, 0, 0, sampleW, sampleH);
+
+        let data;
+        try {
+            data = octx.getImageData(0, 0, sampleW, sampleH).data;
+        } catch (e) {
+            return '#4b1a8f'; // e.g. blocked by canvas tainting
+        }
+
+        let rSum = 0, gSum = 0, bSum = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            const sat = max - min;
+            const lum = (r + g + b) / 3;
+            if (sat > 30 && lum > 15 && lum < 235) {
+                rSum += r; gSum += g; bSum += b; count++;
+            }
+        }
+        if (count === 0) return '#4b1a8f';
+
+        const darken = (v) => Math.max(0, Math.round((v / count) * 0.72));
+        const toHex = (v) => v.toString(16).padStart(2, '0');
+        return `#${toHex(darken(rSum))}${toHex(darken(gSum))}${toHex(darken(bSum))}`;
+    }
+
+    function initLayoutControls() {
+        document.querySelectorAll('.pos-control').forEach(el => {
+            const fieldId = el.dataset.field;
+            const xInput = el.querySelector('.pos-x');
+            const yInput = el.querySelector('.pos-y');
+            if (xInput) xInput.addEventListener('input', () => updateFieldPosition(fieldId, 'x', xInput.value));
+            if (yInput) yInput.addEventListener('input', () => updateFieldPosition(fieldId, 'y', yInput.value));
+        });
+
+        // Editable caption/decorative text (not tied to card data)
+        document.querySelectorAll('.static-text-input').forEach(el => {
+            el.addEventListener('input', () => updateStaticFieldText(el.dataset.field, el.value));
+        });
+
+        const logoBoxX = document.getElementById('logoBoxX');
+        const logoBoxY = document.getElementById('logoBoxY');
+        const logoBoxW = document.getElementById('logoBoxW');
+        const logoBoxH = document.getElementById('logoBoxH');
+        if (logoBoxX) logoBoxX.addEventListener('input', () => updateLogoBoxAxis('x', logoBoxX.value));
+        if (logoBoxY) logoBoxY.addEventListener('input', () => updateLogoBoxAxis('y', logoBoxY.value));
+        if (logoBoxW) logoBoxW.addEventListener('input', () => updateLogoBoxSize('w', logoBoxW.value));
+        if (logoBoxH) logoBoxH.addEventListener('input', () => updateLogoBoxSize('h', logoBoxH.value));
+
+        // Logo frame border / shadow
+        const logoBorderEnabled = document.getElementById('logoBorderEnabled');
+        const logoBorderColor = document.getElementById('logoBorderColor');
+        const logoShadowEnabled = document.getElementById('logoShadowEnabled');
+        const btnAutoBorderColor = document.getElementById('btnAutoBorderColor');
+        if (logoBorderEnabled) {
+            logoBorderEnabled.addEventListener('change', () => {
+                if (!LAYOUT) return;
+                LAYOUT.logo.border.enabled = logoBorderEnabled.checked;
+                renderCard();
+            });
+        }
+        if (logoBorderColor) {
+            logoBorderColor.addEventListener('input', () => {
+                if (!LAYOUT) return;
+                LAYOUT.logo.border.color = logoBorderColor.value;
+                renderCard();
+            });
+        }
+        if (logoShadowEnabled) {
+            logoShadowEnabled.addEventListener('change', () => {
+                if (!LAYOUT) return;
+                LAYOUT.logo.shadow.enabled = logoShadowEnabled.checked;
+                renderCard();
+            });
+        }
+        if (btnAutoBorderColor) {
+            btnAutoBorderColor.addEventListener('click', () => {
+                if (!LAYOUT) return;
+                const color = detectTemplateAccentColor();
+                LAYOUT.logo.border.color = color;
+                if (logoBorderColor) logoBorderColor.value = color;
+                renderCard();
+            });
+        }
+
+        // Barcode: on/off + position/size (same center-anchored resize as the logo frame)
+        const barcodeEnabled = document.getElementById('barcodeEnabled');
+        const barcodeBoxX = document.getElementById('barcodeBoxX');
+        const barcodeBoxY = document.getElementById('barcodeBoxY');
+        const barcodeBoxW = document.getElementById('barcodeBoxW');
+        const barcodeBoxH = document.getElementById('barcodeBoxH');
+        if (barcodeEnabled) {
+            barcodeEnabled.addEventListener('change', () => {
+                if (!LAYOUT) return;
+                LAYOUT.barcode.enabled = barcodeEnabled.checked;
+                renderCard();
+            });
+        }
+        if (barcodeBoxX) barcodeBoxX.addEventListener('input', () => updateBarcodeBoxAxis('x', barcodeBoxX.value));
+        if (barcodeBoxY) barcodeBoxY.addEventListener('input', () => updateBarcodeBoxAxis('y', barcodeBoxY.value));
+        if (barcodeBoxW) barcodeBoxW.addEventListener('input', () => updateBarcodeBoxSize('w', barcodeBoxW.value));
+        if (barcodeBoxH) barcodeBoxH.addEventListener('input', () => updateBarcodeBoxSize('h', barcodeBoxH.value));
+
+        // Swap the template image file
+        const btnUploadTemplate = document.getElementById('btnUploadTemplate');
+        const templateUploadInput = document.getElementById('templateUploadInput');
+        if (btnUploadTemplate && templateUploadInput) {
+            btnUploadTemplate.addEventListener('click', () => templateUploadInput.click());
+            templateUploadInput.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const fd = new FormData();
+                fd.append('file', file);
+                try {
+                    const res = await fetch('/api/upload_template', { method: 'POST', body: fd });
+                    const data = await res.json();
+                    if (data.success) {
+                        LAYOUT.canvasWidth = data.width;
+                        LAYOUT.canvasHeight = data.height;
+                        CARD_WIDTH = data.width;
+                        CARD_HEIGHT = data.height;
+                        canvas.width = CARD_WIDTH;
+                        canvas.height = CARD_HEIGHT;
+                        await reloadTemplateImageOnly();
+                        syncLayoutControlsFromLAYOUT();
+                        renderCard();
+                        alert('✅ 模板圖片已更新！（欄位位置比例維持不變，如需微調請用下方的文字/框架位置設定）');
+                    } else {
+                        alert('更換模板失敗: ' + (data.error || '未知錯誤'));
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert('無法連接伺服器更換模板圖片。');
+                } finally {
+                    templateUploadInput.value = '';
+                }
+            });
+        }
+
+        // Force a fresh reload of config + template image (fixes any browser image caching)
+        const btnRefreshTemplate = document.getElementById('btnRefreshTemplate');
+        if (btnRefreshTemplate) {
+            btnRefreshTemplate.addEventListener('click', async () => {
+                try {
+                    await loadLayoutConfig();
+                    syncLayoutControlsFromLAYOUT();
+                    renderCard();
+                    alert('✅ 已重新載入最新的模板圖片與版面設定。');
+                } catch (err) {
+                    console.error(err);
+                    alert('重新載入失敗: ' + err.message);
+                }
+            });
+        }
+
+        // Persist the current in-browser layout (positions + logo box) to the server
+        const btnSaveLayout = document.getElementById('btnSaveLayout');
+        if (btnSaveLayout) {
+            btnSaveLayout.addEventListener('click', async () => {
+                if (!LAYOUT) return;
+                try {
+                    const res = await fetch('/api/save_layout', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(LAYOUT)
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        alert('✅ 版面設定已儲存！之後重新整理或批次產圖都會套用這份版面。');
+                    } else {
+                        alert('儲存失敗: ' + (data.error || '未知錯誤'));
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert('無法連接伺服器儲存版面設定。');
+                }
+            });
+        }
+    }
 
     function renderCard() {
         const data = getFormData();
@@ -161,124 +521,132 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderCardForData(data, activeLogoImg) {
+        if (!LAYOUT || !templateImg) return; // config still loading
+
         ctx.clearRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-        const borderRadius = data.cardBorderRadius === 'rounded' ? 45 : 0;
+        // 1. Template background (already contains all box art / borders / pattern)
+        ctx.drawImage(templateImg, 0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-        // 1. Base Rounded Card Clip & Background
+        // 2. Team Logo (drawn before text so text always stays on top)
+        drawLogo(data, activeLogoImg);
+
+        // 3. Scannable barcode generated from the ID number
+        drawIdBarcode(data);
+
+        // 4. Every text field, positioned purely from the config file
+        LAYOUT.fields.forEach(fieldCfg => drawConfigField(fieldCfg, data));
+    }
+
+    function drawIdBarcode(data) {
+        const bc = LAYOUT.barcode;
+        if (!bc || !bc.enabled) return;
+        const text = data[bc.sourceKey || 'idNumber'];
+        if (!text) return;
+        if (typeof JsBarcode === 'undefined') return; // vendor script failed to load — fail quietly
+
+        const box = bc.box;
+        const pX = box.x * CARD_WIDTH;
+        const pY = box.y * CARD_HEIGHT;
+        const pW = box.w * CARD_WIDTH;
+        const pH = box.h * CARD_HEIGHT;
+
+        const off = document.createElement('canvas');
+        try {
+            JsBarcode(off, text, {
+                format: bc.format || 'CODE128',
+                width: 2,
+                height: 100,
+                margin: 4,
+                displayValue: false,
+                background: bc.background || '#ffffff',
+                lineColor: bc.lineColor || '#1a1a1a'
+            });
+        } catch (e) {
+            // Some characters aren't valid for the chosen barcode format — skip
+            // drawing rather than breaking the whole card render.
+            console.warn('Barcode generation skipped for "' + text + '":', e.message);
+            return;
+        }
+
+        ctx.drawImage(off, pX, pY, pW, pH);
+    }
+
+    function resolveFieldText(fieldCfg, data) {
+        let text;
+        if (fieldCfg.source.mode === 'static') {
+            text = fieldCfg.source.text;
+        } else {
+            text = data[fieldCfg.source.key];
+            if (text === undefined || text === null || text === '') {
+                text = DEFAULT_DATA[fieldCfg.source.key] || '';
+            }
+        }
+        if (fieldCfg.prefix) text = fieldCfg.prefix + text;
+        if (fieldCfg.suffix) text = text + fieldCfg.suffix;
+        return String(text);
+    }
+
+    function drawConfigField(fieldCfg, data) {
+        const text = resolveFieldText(fieldCfg, data);
+        if (!text) return;
+
         ctx.save();
-        drawRoundedRect(ctx, 0, 0, CARD_WIDTH, CARD_HEIGHT, borderRadius);
-        ctx.clip();
 
-        // Solid Card Background Fill (Pure, clean, no unwanted gradient darkening)
-        ctx.fillStyle = data.primaryColor;
-        ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+        const family = fieldCfg.font.family;
+        const weight = fieldCfg.font.weight || 400;
+        let sizePx = Math.round(fieldCfg.font.sizeFrac * CARD_HEIGHT);
+        ctx.fillStyle = fieldCfg.color || '#111111';
+        ctx.textAlign = fieldCfg.align.h;
+        ctx.textBaseline = fieldCfg.align.v;
+        ctx.font = `${weight} ${sizePx}px ${family}`;
 
-        // 2. Background Pattern Overlay
-        drawBackgroundPattern(data.cardPattern, data.accentColor);
+        // Auto-shrink to fit maxWidthFrac, down to minSizeFrac
+        if (fieldCfg.maxWidthFrac) {
+            const maxWidthPx = fieldCfg.maxWidthFrac * CARD_WIDTH;
+            const minSizePx = (fieldCfg.minSizeFrac || fieldCfg.font.sizeFrac) * CARD_HEIGHT;
+            while (ctx.measureText(text).width > maxWidthPx && sizePx > minSizePx) {
+                sizePx -= 1;
+                ctx.font = `${weight} ${sizePx}px ${family}`;
+            }
+        }
 
-        // 3. Top Header Banner
-        drawHeaderBanner(data);
+        const x = fieldCfg.position.x * CARD_WIDTH;
+        const y = fieldCfg.position.y * CARD_HEIGHT;
+        ctx.fillText(text, x, y);
 
-        // 4. Square Team Logo Frame (Right side 1:1)
-        drawTeamLogoSquareSection(data, activeLogoImg);
-
-        // 5. Main Info (Name, Number, Team Name Box)
-        drawMainInfo(data);
-
-        // 6. Security Barcode & Footer
-        drawFooterSecurity(data);
-
-        // 7. Card Border Outline
-        ctx.restore();
-        ctx.save();
-        drawRoundedRect(ctx, 2, 2, CARD_WIDTH - 4, CARD_HEIGHT - 4, borderRadius);
-        ctx.lineWidth = 3.5;
-        ctx.strokeStyle = data.accentColor;
-        ctx.stroke();
         ctx.restore();
     }
 
-    // --- Sub-renderers ---
+    function drawLogo(data, activeLogoImg) {
+        const box = LAYOUT.logo.box;
+        const pX = box.x * CARD_WIDTH;
+        const pY = box.y * CARD_HEIGHT;
+        const pW = box.w * CARD_WIDTH;
+        const pH = box.h * CARD_HEIGHT;
 
-    function drawHeaderBanner(data) {
-        ctx.save();
+        const border = LAYOUT.logo.border || {};
+        const shadow = LAYOUT.logo.shadow || {};
 
-        const bannerHeight = 165;
-        const bannerRightX = CARD_WIDTH * 0.65;
-        const bannerCutX = CARD_WIDTH * 0.57;
+        // Soft drop shadow behind the frame, drawn before the clip so it
+        // falls outside the frame's edges instead of being cut off.
+        if (shadow.enabled) {
+            ctx.save();
+            ctx.shadowColor = shadow.color || 'rgba(0,0,0,0.35)';
+            ctx.shadowBlur = (shadow.blurFrac != null ? shadow.blurFrac : 0.012) * CARD_HEIGHT;
+            ctx.shadowOffsetX = (shadow.offsetXFrac || 0) * CARD_WIDTH;
+            ctx.shadowOffsetY = (shadow.offsetYFrac != null ? shadow.offsetYFrac : 0.004) * CARD_HEIGHT;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(pX, pY, pW, pH);
+            ctx.restore();
+        }
 
-        // 1. Banner Angled Background (Solid Black)
-        ctx.fillStyle = '#11161d';
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(bannerRightX, 0);
-        ctx.lineTo(bannerCutX, bannerHeight);
-        ctx.lineTo(0, bannerHeight);
-        ctx.closePath();
-        ctx.fill();
-
-        // 2. Top Accent Stripe along top of card
-        ctx.fillStyle = data.accentColor;
-        ctx.fillRect(0, 0, bannerRightX, 8);
-
-        // 3. Accent colored angled right slash edge line
-        ctx.strokeStyle = data.accentColor;
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.moveTo(bannerRightX, 0);
-        ctx.lineTo(bannerCutX, bannerHeight);
-        ctx.stroke();
-
-        // 4. Header Title (Issuer / Tournament Name - Pure White)
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '900 48px "Noto Sans TC", sans-serif';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`🏐  ${data.associationName}`, 60, 70);
-
-        // 5. English Subtitle (Accent Color, e.g. Purple)
-        ctx.font = '700 24px "Orbitron", sans-serif';
-        ctx.fillStyle = data.accentColor;
-        ctx.fillText('OFFICIAL ATHLETE IDENTIFICATION CARD', 60, 122);
-
-        // 6. Right side badge
-        ctx.fillStyle = data.textColor || '#111111';
-        ctx.font = 'bold 36px "Orbitron", "Noto Sans TC", sans-serif';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('【 排球選手證 】', CARD_WIDTH - 60, 75);
-
-        ctx.restore();
-    }
-
-    function drawTeamLogoSquareSection(data, activeLogoImg) {
-        const pX = 1040;
-        const pY = 240;
-        const pW = 760;
-        const pH = 760; // 1:1 Square
-        const pRadius = 24;
-
-        ctx.save();
-
-        // Drop shadow for outer frame
-        ctx.shadowColor = 'rgba(0,0,0,0.12)';
-        ctx.shadowBlur = 16;
-        ctx.fillStyle = '#ffffff';
-        drawRoundedRect(ctx, pX - 4, pY - 4, pW + 8, pH + 8, pRadius + 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-
-        ctx.beginPath();
-        drawRoundedRect(ctx, pX, pY, pW, pH, pRadius);
-        ctx.clip();
-
-        // Effective logo: passed logoImg > userTeamLogoImg > teamLogoCache for teamName
         const logoImg = activeLogoImg || userTeamLogoImg || getCachedLogoForTeam(data.teamName);
 
-        // Fill background inside square frame with clean White
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(pX, pY, pW, pH);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(pX, pY, pW, pH);
+        ctx.clip();
 
         if (logoImg && logoImg.width > 0 && logoImg.height > 0) {
             const zoom = (data.photoZoom || 100) / 100;
@@ -301,338 +669,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const drawY = pY + (pH - drawH) / 2 + offsetY;
 
             ctx.drawImage(logoImg, drawX, drawY, drawW, drawH);
-        } else {
-            drawDefaultTeamCrest(pX, pY, pW, data.accentColor);
-        }
-
-        // Clean crisp border outline
-        ctx.strokeStyle = data.accentColor;
-        ctx.lineWidth = 4;
-        drawRoundedRect(ctx, pX, pY, pW, pH, pRadius);
-        ctx.stroke();
-
-        ctx.restore();
-    }
-
-    function drawDefaultTeamCrest(x, y, size, accent) {
-        ctx.save();
-        const cx = x + size / 2;
-        const cy = y + size / 2;
-
-        const avBg = ctx.createLinearGradient(x, y, x + size, y + size);
-        avBg.addColorStop(0, '#161c28');
-        avBg.addColorStop(1, '#0c1018');
-        ctx.fillStyle = avBg;
-        ctx.fillRect(x, y, size, size);
-
-        // Tech grid lines
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-        ctx.lineWidth = 1.5;
-        for (let i = 80; i < size; i += 80) {
-            ctx.beginPath();
-            ctx.moveTo(x + i, y);
-            ctx.lineTo(x + i, y + size);
-            ctx.moveTo(x, y + i);
-            ctx.lineTo(x + size, y + i);
-            ctx.stroke();
-        }
-
-        // Concentric tech circles
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-        ctx.strokeStyle = rgbaColor(accent, 0.5);
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(cx, cy - 25, size * 0.32, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.strokeStyle = rgbaColor(accent, 0.2);
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(cx, cy - 25, size * 0.40, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // Volleyball icon
-        ctx.fillStyle = rgbaColor(accent, 0.95);
-        ctx.font = `bold ${Math.round(size * 0.32)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('🏐', cx, cy - 28);
-
-        // Clean label
-        ctx.fillStyle = '#ffffff';
-        ctx.font = `900 ${Math.round(size * 0.048)}px "Orbitron", sans-serif`;
-        ctx.fillText('TEAM CREST / LOGO', cx, cy + size * 0.24);
-
-        ctx.fillStyle = rgbaColor(accent, 0.8);
-        ctx.font = `600 ${Math.round(size * 0.032)}px "Orbitron", sans-serif`;
-        ctx.fillText('1:1 SQUARE OFFICIAL FORMAT', cx, cy + size * 0.31);
-
-        ctx.restore();
-    }
-
-    function drawMainInfo(data) {
-        ctx.save();
-
-        const numX = 70;
-        const numY = 220;
-        const numH = 195;
-
-        // 1. Enlarge Jersey Number Badge Background Width (#03)
-        const numStr = '#' + data.jerseyNumber;
-        let numW = 310;
-        if (numStr.length >= 4) numW = 340;
-
-        ctx.fillStyle = data.accentColor;
-        drawRoundedRect(ctx, numX, numY, numW, numH, 28);
-        ctx.fill();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '900 102px "Orbitron", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(numStr, numX + numW / 2, numY + numH / 2);
-
-        // 2. Enlarge Player Name Block (Vertically Centered with Badge)
-        const contentX = numX + numW + 35;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-
-        ctx.fillStyle = data.textColor || '#111111';
-        let nameFontSize = 115;
-        ctx.font = `900 ${nameFontSize}px "Noto Sans TC", "Outfit", sans-serif`;
-        const maxNameW = 1000 - contentX;
-        while (ctx.measureText(data.playerName).width > maxNameW && nameFontSize > 60) {
-            nameFontSize -= 1;
-            ctx.font = `900 ${nameFontSize}px "Noto Sans TC", "Outfit", sans-serif`;
-        }
-        ctx.fillText(data.playerName, contentX, numY + numH / 2);
-
-        // 3. Team Name Box (Balanced Height: 260px)
-        const teamY = 450;
-        const teamW = 920;
-        const teamH = 260;
-
-        // Solid opaque background (RGB 242/234/248 for Shiratorizawa)
-        ctx.fillStyle = getSolidPastelColor(data.accentColor);
-        ctx.strokeStyle = rgbaColor(data.accentColor, 0.55);
-        ctx.lineWidth = 2;
-        drawRoundedRect(ctx, numX, teamY, teamW, teamH, 24);
-        ctx.fill();
-        ctx.stroke();
-
-        // Accent strip on left of Team Box
-        ctx.fillStyle = data.accentColor;
-        drawRoundedRect(ctx, numX, teamY, 12, teamH, 6);
-        ctx.fill();
-
-        // Line 1: Header Label (TEAM NAME / 隊伍名稱)
-        ctx.fillStyle = data.accentColor;
-        ctx.font = 'bold 22px "Orbitron", "Noto Sans TC", sans-serif';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText('TEAM NAME / 隊伍名稱', numX + 40, teamY + 35);
-
-        // Line 2: Actual Team Name (Maintains consistent 66px font size)
-        ctx.fillStyle = data.textColor || '#111111';
-        let teamFontSize = 66;
-        ctx.font = `900 ${teamFontSize}px "Noto Sans TC", "Outfit", sans-serif`;
-        const maxTeamW = teamW - 80;
-        while (ctx.measureText(data.teamName).width > maxTeamW && teamFontSize > 36) {
-            teamFontSize -= 1;
-            ctx.font = `900 ${teamFontSize}px "Noto Sans TC", "Outfit", sans-serif`;
-        }
-        ctx.fillText(data.teamName, numX + 40, teamY + 88);
-
-        // Line 3: Subtitle / Squad decoration
-        ctx.fillStyle = rgbaColor(data.textColor || '#111111', 0.5);
-        ctx.font = '700 16px "Orbitron", sans-serif';
-        ctx.fillText('OFFICIAL REGISTERED ATHLETE SQUAD', numX + 40, teamY + 195);
-
-        ctx.restore();
-    }
-
-    function drawFooterSecurity(data) {
-        ctx.save();
-
-        const numX = 70;
-        const footerY = 740;
-
-        // 1. Render Barcode & ID Number (Left Column, x = 70)
-        const idStr = data.idNumber || 'NMB-2026-0905';
-        drawBarcode(ctx, numX, footerY + 8, 250, 78, idStr, data.textColor || '#111111');
-
-        ctx.fillStyle = data.textColor || '#111111';
-        ctx.font = '700 22px "Orbitron", monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText('ID: ' + idStr, numX, footerY + 98);
-
-        // 2. Middle Validity Info (x = 355) - Enlarged Date
-        const infoX = 355;
-        ctx.textAlign = 'left';
-
-        // Line 1: VALID THRU label
-        ctx.fillStyle = data.accentColor;
-        ctx.font = '700 20px "Orbitron", sans-serif';
-        ctx.fillText('VALID THRU', infoX, footerY + 12);
-
-        // Line 2: Prominently Enlarged Date Value (Font 40px)
-        ctx.fillStyle = data.textColor || '#111111';
-        ctx.font = '900 40px "Orbitron", sans-serif';
-        ctx.fillText(data.validThru || '2026/09/05', infoX, footerY + 48);
-
-        // 3. Fixed NVA Seal Badge Circle (Centered at x = 880, y = 800)
-        const jvaX = 880;
-        const jvaY = footerY + 60;
-        
-        ctx.strokeStyle = data.accentColor;
-        ctx.lineWidth = 3.5;
-        ctx.beginPath();
-        ctx.arc(jvaX, jvaY, 44, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = rgbaColor(data.accentColor, 0.50);
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(jvaX, jvaY, 36, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.fillStyle = data.accentColor;
-        ctx.font = '900 30px "Orbitron", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('NVA', jvaX, jvaY);
-
-        // 4. Enlarged Full-Width Dedicated Bottom Location Capsule (x = 70, y = 875, w = 920, h = 92)
-        const locY = 875;
-        const locW = 920;
-        const locH = 92;
-
-        // Solid opaque background (RGB 242/234/248 for Shiratorizawa)
-        ctx.fillStyle = getSolidPastelColor(data.accentColor);
-        ctx.strokeStyle = rgbaColor(data.accentColor, 0.55);
-        ctx.lineWidth = 2;
-        drawRoundedRect(ctx, numX, locY, locW, locH, 20);
-        ctx.fill();
-        ctx.stroke();
-
-        // Location text processing
-        let rawLoc = data.footerNote2 || 'NVA Club House 排球俱樂部';
-        
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-
-        // Prominently Enlarged LOCATION Tag
-        ctx.fillStyle = data.accentColor;
-        ctx.font = '900 24px "Orbitron", sans-serif';
-        ctx.fillText('LOCATION', numX + 26, locY + locH / 2);
-
-        // Vertical Divider
-        ctx.fillStyle = rgbaColor(data.textColor || '#111111', 0.25);
-        ctx.fillRect(numX + 180, locY + 16, 2, locH - 32);
-
-        // Prominently Enlarged Address / Club House String (Font 34px)
-        let addrStr = rawLoc.replace(/^Location:\s*/i, '').trim();
-        ctx.fillStyle = data.textColor || '#111111';
-        let addrFontSize = 34;
-        ctx.font = `900 ${addrFontSize}px "Noto Sans TC", "Outfit", sans-serif`;
-
-        const maxAddrW = locW - 220;
-        while (ctx.measureText(addrStr).width > maxAddrW && addrFontSize > 16) {
-            addrFontSize -= 1;
-            ctx.font = `900 ${addrFontSize}px "Noto Sans TC", "Outfit", sans-serif`;
-        }
-
-        ctx.fillText(addrStr, numX + 202, locY + locH / 2);
-
-        ctx.restore();
-    }
-
-    function drawBackgroundPattern(patternType, accentColor) {
-        ctx.save();
-
-        // Significantly enhanced opacity & line weight for high visibility
-        ctx.strokeStyle = rgbaColor(accentColor, 0.22);
-        ctx.fillStyle = rgbaColor(accentColor, 0.16);
-        ctx.lineWidth = 3.5;
-
-        if (patternType === 'volleyball') {
-            const cx = CARD_WIDTH * 0.35;
-            const cy = CARD_HEIGHT * 0.6;
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = rgbaColor(accentColor, 0.22);
-            for (let r = 180; r <= 1100; r += 140) {
-                ctx.beginPath();
-                ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.stroke();
-            }
-        } else if (patternType === 'stripes') {
-            // High-energy dynamic diagonal speed lines
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = rgbaColor(accentColor, 0.24);
-            for (let x = -CARD_HEIGHT * 1.5; x < CARD_WIDTH * 1.5; x += 55) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x + CARD_HEIGHT * 1.2, CARD_HEIGHT);
-                ctx.stroke();
-            }
-
-            // Accent thick bars
-            ctx.lineWidth = 10;
-            ctx.strokeStyle = rgbaColor(accentColor, 0.14);
-            for (let x = -CARD_HEIGHT * 1.5; x < CARD_WIDTH * 1.5; x += 220) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x + CARD_HEIGHT * 1.2, CARD_HEIGHT);
-                ctx.stroke();
-            }
-
-        } else if (patternType === 'dots') {
-            // Bold high-tech matrix dot grid
-            ctx.fillStyle = rgbaColor(accentColor, 0.25);
-            for (let x = 45; x < CARD_WIDTH; x += 50) {
-                for (let y = 45; y < CARD_HEIGHT; y += 50) {
-                    ctx.beginPath();
-                    ctx.arc(x, y, 4.5, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            }
-
-            // Target crosshairs in tech matrix
-            ctx.strokeStyle = rgbaColor(accentColor, 0.30);
-            ctx.lineWidth = 2;
-            for (let x = 145; x < CARD_WIDTH; x += 250) {
-                for (let y = 145; y < CARD_HEIGHT; y += 250) {
-                    ctx.beginPath();
-                    ctx.arc(x, y, 14, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-            }
+        } else if (LAYOUT.logo.placeholderText) {
+            ctx.fillStyle = LAYOUT.logo.placeholderColor || '#999999';
+            ctx.font = `700 ${Math.round(pH * 0.06)}px "Noto Sans TC", sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(LAYOUT.logo.placeholderText, pX + pW / 2, pY + pH / 2);
         }
 
         ctx.restore();
-    }
 
-    function drawBarcode(ctx, x, y, width, height, text, color = '#111111') {
-        ctx.fillStyle = color;
-        let hash = 0;
-        for (let i = 0; i < text.length; i++) {
-            hash = (hash << 5) - hash + text.charCodeAt(i);
-            hash |= 0;
-        }
-
-        const barCount = 42;
-        const unitW = width / barCount;
-        let currX = x;
-
-        for (let i = 0; i < barCount; i++) {
-            const barW = ((i + Math.abs(hash)) % 3 + 1) * (unitW * 0.5);
-            if (i % 2 === 0) {
-                ctx.fillRect(currX, y, barW, height);
-            }
-            currX += barW + (unitW * 0.4);
-            if (currX >= x + width) break;
+        // Border drawn last, on top of the (now unclipped) context
+        if (border.enabled) {
+            ctx.save();
+            ctx.strokeStyle = (border.color && border.color !== 'auto') ? border.color : '#4b1a8f';
+            ctx.lineWidth = (border.widthFrac || 0.005) * CARD_HEIGHT;
+            ctx.strokeRect(pX, pY, pW, pH);
+            ctx.restore();
         }
     }
 
@@ -698,20 +751,49 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event Handlers & Form Syncing
     // ==========================================
 
+    // ==========================================
+    // ID Number Mode: 統一編號 (manual) vs 流水編號 (sequential)
+    // Session-only setting (not persisted to card_layout.json, which only
+    // holds visual layout) — resets to manual on page reload.
+    // ==========================================
+
+    function getIdNumberSettings() {
+        const checked = document.querySelector('input[name="idNumberMode"]:checked');
+        return {
+            mode: checked ? checked.value : 'manual',
+            prefix: (document.getElementById('idSeqPrefix') || {}).value || '',
+            start: parseInt((document.getElementById('idSeqStart') || {}).value, 10) || 0,
+            digits: parseInt((document.getElementById('idSeqDigits') || {}).value, 10) || 1,
+            suffix: (document.getElementById('idSeqSuffix') || {}).value || ''
+        };
+    }
+
+    function formatSequentialId(settings, index) {
+        const num = settings.start + index;
+        const numStr = String(num).padStart(settings.digits, '0');
+        return `${settings.prefix}${numStr}${settings.suffix}`;
+    }
+
+    function updateIdSeqPreview() {
+        const preview = document.getElementById('idSeqPreview');
+        if (!preview) return;
+        preview.innerText = formatSequentialId(getIdNumberSettings(), 0);
+    }
+
     function getFormData() {
+        const idSettings = getIdNumberSettings();
+        const idNumber = idSettings.mode === 'sequential'
+            ? formatSequentialId(idSettings, 0)
+            : (fields.idNumber ? fields.idNumber.value : DEFAULT_DATA.idNumber);
+
         return {
             playerName: fields.playerName ? fields.playerName.value : DEFAULT_DATA.playerName,
             teamName: fields.teamName ? fields.teamName.value : DEFAULT_DATA.teamName,
             jerseyNumber: fields.jerseyNumber ? fields.jerseyNumber.value : DEFAULT_DATA.jerseyNumber,
-            idNumber: fields.idNumber ? fields.idNumber.value : DEFAULT_DATA.idNumber,
+            idNumber,
             associationName: fields.associationName ? fields.associationName.value : DEFAULT_DATA.associationName,
             validThru: fields.validThru ? fields.validThru.value : DEFAULT_DATA.validThru,
             footerNote2: fields.footerNote2 ? fields.footerNote2.value : DEFAULT_DATA.footerNote2,
-            primaryColor: fields.primaryColor.value,
-            accentColor: fields.accentColor.value,
-            textColor: fields.textColor ? fields.textColor.value : (DEFAULT_DATA.textColor || '#111111'),
-            cardPattern: fields.cardPattern.value,
-            cardBorderRadius: fields.cardBorderRadius.value,
             photoZoom: parseFloat(fields.photoZoom.value),
             photoOffsetX: parseFloat(fields.photoOffsetX.value),
             photoOffsetY: parseFloat(fields.photoOffsetY.value)
@@ -735,6 +817,36 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function initIdNumberModeControls() {
+        const manualGroup = document.getElementById('idNumberManualGroup');
+        const sequentialGroup = document.getElementById('idNumberSequentialGroup');
+        const radios = document.querySelectorAll('input[name="idNumberMode"]');
+
+        const applyModeVisibility = () => {
+            const settings = getIdNumberSettings();
+            const isSequential = settings.mode === 'sequential';
+            if (manualGroup) manualGroup.style.display = isSequential ? 'none' : 'flex';
+            if (sequentialGroup) sequentialGroup.style.display = isSequential ? 'flex' : 'none';
+        };
+
+        radios.forEach(r => r.addEventListener('change', () => {
+            applyModeVisibility();
+            updateIdSeqPreview();
+            renderCard();
+        }));
+
+        ['idSeqPrefix', 'idSeqStart', 'idSeqDigits', 'idSeqSuffix'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', () => {
+                updateIdSeqPreview();
+                renderCard();
+            });
+        });
+
+        applyModeVisibility();
+        updateIdSeqPreview();
+    }
+
     function initControls() {
         Object.values(fields).forEach(el => {
             if (el && el.addEventListener) {
@@ -751,46 +863,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 el.addEventListener('change', renderCard);
             }
         });
-
-        const presetBtns = document.querySelectorAll('.preset-btn');
-        presetBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                presetBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-
-                const presetKey = btn.getAttribute('data-preset');
-                if (PRESETS[presetKey]) {
-                    fields.primaryColor.value = PRESETS[presetKey].primary;
-                    fields.accentColor.value = PRESETS[presetKey].accent;
-                    if (fields.textColor && PRESETS[presetKey].text) {
-                        fields.textColor.value = PRESETS[presetKey].text;
-                    }
-                    renderCard();
-                }
-            });
-        });
     }
 
     function initFileUploads() {
-        const photoInput = document.getElementById('photoUpload');
-        if (photoInput) {
-            photoInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                        const img = new Image();
-                        img.onload = () => {
-                            userPhotoImg = img;
-                            renderCard();
-                        };
-                        img.src = event.target.result;
-                    };
-                    reader.readAsDataURL(file);
-                }
-            });
-        }
-
         // Single Logo Upload in Logo Tab
         const teamLogoInput = document.getElementById('teamLogoUpload');
         const singleDropZone = document.getElementById('singleLogoDropZone');
@@ -1001,9 +1076,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const tr = document.createElement('tr');
                 tr.id = `batch-row-${idx}`;
 
-                const logoPreview = item.logoUrl 
+                const logoPreview = item.logoUrl
                     ? `<img src="${item.logoUrl}" style="height:26px; width:26px; object-fit:contain; background:#18202c; border-radius:4px; vertical-align:middle; margin-right:6px; border:1px solid rgba(255,255,255,0.1);"><strong>${item.teamName}</strong>`
-                    : (userTeamLogoImg 
+                    : (userTeamLogoImg
                         ? `<span style="color:#00e676; margin-right:4px;">🛡️</span><strong>${item.teamName}</strong> <span style="font-size:0.75rem; color:var(--text-muted);">(手動Logo)</span>`
                         : `<strong>${item.teamName}</strong>`);
 
@@ -1050,6 +1125,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let successCount = 0;
 
                 const baseForm = getFormData();
+                const idSettings = getIdNumberSettings();
 
                 for (let i = 0; i < total; i++) {
                     const item = batchItems[i];
@@ -1072,12 +1148,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     // 2. Build Card Data for this Athlete
+                    const idNumberForItem = idSettings.mode === 'sequential'
+                        ? formatSequentialId(idSettings, i)
+                        : (baseForm.idNumber || 'NMB-2026-0905');
                     const cardData = {
                         ...baseForm,
                         playerName: item.playerName,
                         teamName: item.teamName,
                         jerseyNumber: item.jerseyNumber,
-                        idNumber: baseForm.idNumber || 'NMB-2026-0905'
+                        idNumber: idNumberForItem
                     };
 
                     // 3. Render onto Canvas with the resolved team logo image!
@@ -1176,11 +1255,6 @@ document.addEventListener('DOMContentLoaded', () => {
             fields.associationName.value = DEFAULT_DATA.associationName;
             if (fields.validThru) fields.validThru.value = DEFAULT_DATA.validThru;
             if (fields.footerNote2) fields.footerNote2.value = DEFAULT_DATA.footerNote2;
-            fields.primaryColor.value = DEFAULT_DATA.primaryColor;
-            fields.accentColor.value = DEFAULT_DATA.accentColor;
-            if (fields.textColor) fields.textColor.value = DEFAULT_DATA.textColor;
-            fields.cardPattern.value = DEFAULT_DATA.cardPattern;
-            fields.cardBorderRadius.value = DEFAULT_DATA.cardBorderRadius;
             fields.photoZoom.value = DEFAULT_DATA.photoZoom;
             fields.photoOffsetX.value = DEFAULT_DATA.photoOffsetX;
             fields.photoOffsetY.value = DEFAULT_DATA.photoOffsetY;
@@ -1189,10 +1263,6 @@ document.addEventListener('DOMContentLoaded', () => {
             userTeamLogoImg = getCachedLogoForTeam(DEFAULT_DATA.teamName);
             const logoEl = document.getElementById('teamLogoUpload');
             if (logoEl) logoEl.value = '';
-
-            document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-            const defaultPresetBtn = document.querySelector('.preset-btn[data-preset="karasuno"]');
-            if (defaultPresetBtn) defaultPresetBtn.classList.add('active');
 
             renderCard();
         };
@@ -1265,58 +1335,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // Utility Helpers
-    // ==========================================
-
-    function drawRoundedRect(ctx, x, y, w, h, r) {
-        if (w < 2 * r) r = w / 2;
-        if (h < 2 * r) r = h / 2;
-        ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.arcTo(x + w, y, x + w, y + h, r);
-        ctx.arcTo(x + w, y + h, x, y + h, r);
-        ctx.arcTo(x, y + h, x, y, r);
-        ctx.arcTo(x, y, x + w, y, r);
-        ctx.closePath();
-    }
-
-    function rgbaColor(hex, alpha) {
-        const c = hex.replace('#', '');
-        let r, g, b;
-        if (c.length === 3) {
-            r = parseInt(c[0] + c[0], 16);
-            g = parseInt(c[1] + c[1], 16);
-            b = parseInt(c[2] + c[2], 16);
-        } else {
-            r = parseInt(c.substring(0, 2), 16);
-            g = parseInt(c.substring(2, 4), 16);
-            b = parseInt(c.substring(4, 6), 16);
-        }
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    }
-
-    function adjustColor(hex, percent) {
-        let num = parseInt(hex.replace('#', ''), 16);
-        let amt = Math.round(2.55 * percent);
-        let R = (num >> 16) + amt;
-        let G = (num >> 8 & 0x00FF) + amt;
-        let B = (num & 0x0000FF) + amt;
-        return '#' + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 + (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 + (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1);
-    }
-
-    function getSolidPastelColor(hexColor) {
-        if (!hexColor || hexColor.length < 7) return 'rgb(242, 234, 248)';
-        if (hexColor.toLowerCase() === '#501898') return 'rgb(242, 234, 248)';
-        const r = parseInt(hexColor.slice(1, 3), 16) || 0;
-        const g = parseInt(hexColor.slice(3, 5), 16) || 0;
-        const b = parseInt(hexColor.slice(5, 7), 16) || 0;
-        const pr = Math.min(255, Math.round(r * 0.07 + 255 * 0.93));
-        const pg = Math.min(255, Math.round(g * 0.07 + 255 * 0.93));
-        const pb = Math.min(255, Math.round(b * 0.07 + 255 * 0.93));
-        return `rgb(${pr}, ${pg}, ${pb})`;
-    }
-
-    // ==========================================
     // Bootstrap App
     // ==========================================
     initTabs();
@@ -1325,11 +1343,17 @@ document.addEventListener('DOMContentLoaded', () => {
     initBatchGeneration();
     initButtons();
     initModal();
+    initLayoutControls();
+    initIdNumberModeControls();
 
-    // Auto load server logos and render
-    loadAllTeamLogosFromServer().then(() => {
-        renderCard();
-    });
-
-    renderCard();
+    loadLayoutConfig()
+        .then(() => {
+            syncLayoutControlsFromLAYOUT();
+            return loadAllTeamLogosFromServer();
+        })
+        .then(() => renderCard())
+        .catch(err => {
+            console.error(err);
+            alert('版面設定檔或模板圖片載入失敗，請確認 static/config/card_layout.json 與模板圖片是否存在。');
+        });
 });
