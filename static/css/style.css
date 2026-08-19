@@ -346,7 +346,7 @@ body {
 /* Form Tabs */
 .form-tabs {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     background: rgba(0, 0, 0, 0.25);
     padding: 4px;
     border-radius: var(--radius-md);
@@ -449,6 +449,120 @@ body {
     min-width: 0;
     padding: 4px 6px;
     font-size: 0.78rem;
+}
+
+.field-color-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    margin-top: 6px;
+}
+
+.field-color-row .pos-tag {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.field-color-row input[type="color"] {
+    width: 28px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+}
+
+.field-color-auto-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.field-color-candidates {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.custom-element-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    margin-bottom: 10px;
+}
+
+.custom-element-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.custom-element-header .custom-text-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.custom-element-delete {
+    color: #ff6b6b;
+    border-color: rgba(255, 107, 107, 0.35);
+    white-space: nowrap;
+}
+
+.logo-process-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 6px;
+}
+
+.logo-reprocess-btn {
+    background: none;
+    border: 1px solid rgba(255, 107, 0, 0.35);
+    border-radius: 10px;
+    color: var(--primary);
+    cursor: pointer;
+    font-size: 0.75rem;
+    line-height: 1;
+    padding: 2px 6px;
+    margin-left: 2px;
+}
+
+.logo-reprocess-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+.logo-processing-hint {
+    font-size: 0.75rem;
+    color: var(--primary);
+}
+
+.logo-recolor-color {
+    width: 28px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+#btnApplyTeamLogoSettings {
+    margin-top: 8px;
 }
 
 .id-mode-toggle {

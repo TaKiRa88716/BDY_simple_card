@@ -19,7 +19,7 @@ import zipfile
 import subprocess
 import re
 import json
-from PIL import Image as PILImage, ImageDraw
+from PIL import Image as PILImage, ImageDraw, ImageChops
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
@@ -39,10 +39,12 @@ TEAM_LOGO_DIR = os.path.join(app.root_path, '隊伍Logo')
 CONFIG_DIR = os.path.join(app.static_folder, 'config')
 LAYOUT_PATH = os.path.join(CONFIG_DIR, 'card_layout.json')
 TEMPLATE_IMG_PATH = os.path.join(app.static_folder, 'images', 'card_template.png')
+CUSTOM_ELEMENT_DIR = os.path.join(app.static_folder, 'custom_elements')
 os.makedirs(CARDS_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(TEAM_LOGO_DIR, exist_ok=True)
 os.makedirs(CONFIG_DIR, exist_ok=True)
+os.makedirs(CUSTOM_ELEMENT_DIR, exist_ok=True)
 
 DEFAULT_CANVAS_WIDTH = 1559
 DEFAULT_CANVAS_HEIGHT = 1009
@@ -71,11 +73,50 @@ def ensure_default_template():
     draw.text(((width - text_w) / 2, (height - text_h) / 2), text, fill='#ffffff')
     img.save(TEMPLATE_IMG_PATH, format='PNG')
 
-ensure_default_template()
-
 def sanitize_filename(name):
     """清理 Windows 檔案名稱中的非法字元"""
     return re.sub(r'[\\/*?:"<>|]', '', str(name)).strip()
+
+def is_valid_hex_color(value):
+    return bool(value) and re.match(r'^#[0-9a-fA-F]{6}$', value)
+
+def trim_to_content(img):
+    """去外框：裁掉圖片四周多餘的空白/透明邊框，只保留 LOGO 本身內容的最小外接框。
+    有透明通道 (去背後，或原本就是透明背景的 PNG) 就用 alpha 遮罩找邊界；
+    沒有透明通道 (例如白底的 JPG) 則用「與純白色的差異」找邊界。"""
+    if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+        alpha = img.convert('RGBA').getchannel('A')
+        bbox = alpha.getbbox()
+    else:
+        rgb = img.convert('RGB')
+        white_bg = PILImage.new('RGB', rgb.size, (255, 255, 255))
+        bbox = ImageChops.difference(rgb, white_bg).getbbox()
+
+    return img.crop(bbox) if bbox else img
+
+def process_logo_image(img, remove_bg, recolor_hex, trim=False):
+    """套用可選的 AI 去背 (rembg)、依模板主色調的自動改配色、以及去除多餘白邊/透明邊框。
+    改配色採用雙色調上色 (黑->目標色)，保留原本明暗漸層，而非死板單一平塗；
+    去背/改色後的透明範圍 (alpha) 一律保留。"""
+    if remove_bg:
+        from rembg import remove as rembg_remove  # 延遲 import，避免未安裝時整個 app 起不來
+        img = rembg_remove(img)
+
+    if recolor_hex and is_valid_hex_color(recolor_hex):
+        # 純色平塗：只用原圖的透明度(alpha)當形狀遮罩，可見範圍全部填成目標色，
+        # 不理會原本線條/圖案的明暗深淺，這樣選的顏色才會「所見即所得」——
+        # 舊版用明暗漸層雙色調上色，原圖深色線條會偏黑，導致選淺色也沒用。
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        alpha = img.getchannel('A')
+        solid = PILImage.new('RGBA', img.size, recolor_hex)
+        solid.putalpha(alpha)
+        img = solid
+
+    if trim:
+        img = trim_to_content(img)
+
+    return img
 
 @app.route('/team_logo/<path:filename>')
 def serve_team_logo(filename):
@@ -97,24 +138,38 @@ def list_team_logos():
 
 @app.route('/api/upload_team_logo', methods=['POST'])
 def upload_team_logo():
-    """上傳隊伍 Logo 圖檔 (支援 PNG, JPG, WEBP, SVG)"""
+    """上傳隊伍 Logo 圖檔 (支援 PNG, JPG, WEBP, SVG)；可選擇自動去背 / 自動改配色"""
     try:
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': '未找到上傳圖檔'}), 400
-        
+
         file = request.files['file']
         if not file or file.filename == '':
             return jsonify({'success': False, 'error': '未選擇檔案'}), 400
 
         team_name = request.form.get('team_name', '').strip()
+        remove_bg = request.form.get('remove_bg', '').lower() == 'true'
+        recolor_hex = request.form.get('recolor_hex', '').strip()
+        trim = request.form.get('trim', '').lower() == 'true'
+
         orig_name = sanitize_filename(file.filename)
         ext = os.path.splitext(orig_name)[1].lower()
         if not ext:
             ext = '.png'
 
-        target_name = f"{sanitize_filename(team_name)}{ext}" if team_name else orig_name
-        filepath = os.path.join(TEAM_LOGO_DIR, target_name)
-        file.save(filepath)
+        if remove_bg or is_valid_hex_color(recolor_hex) or trim:
+            # 去背/改色/去外框都需要透明背景，一律轉存為 PNG 以保留 alpha 通道
+            img = PILImage.open(file.stream)
+            img = process_logo_image(img, remove_bg, recolor_hex, trim)
+            ext = '.png'
+            stem_name = sanitize_filename(team_name) if team_name else os.path.splitext(orig_name)[0]
+            target_name = f"{stem_name}{ext}"
+            filepath = os.path.join(TEAM_LOGO_DIR, target_name)
+            img.save(filepath, format='PNG')
+        else:
+            target_name = f"{sanitize_filename(team_name)}{ext}" if team_name else orig_name
+            filepath = os.path.join(TEAM_LOGO_DIR, target_name)
+            file.save(filepath)
 
         stem = os.path.splitext(target_name)[0]
         logo_url = url_for('serve_team_logo', filename=target_name)
@@ -124,6 +179,90 @@ def upload_team_logo():
             'team_name': stem,
             'filename': target_name,
             'logo_url': logo_url
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/upload_custom_asset', methods=['POST'])
+def upload_custom_asset():
+    """上傳自訂元素（模板層級自由新增的文字/LOGO 用的圖片），存進 static/custom_elements/；
+    可選擇自動去背 / 自動改配色"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': '未找到上傳圖檔'}), 400
+
+        file = request.files['file']
+        if not file or file.filename == '':
+            return jsonify({'success': False, 'error': '未選擇檔案'}), 400
+
+        remove_bg = request.form.get('remove_bg', '').lower() == 'true'
+        recolor_hex = request.form.get('recolor_hex', '').strip()
+        trim = request.form.get('trim', '').lower() == 'true'
+
+        orig_name = sanitize_filename(file.filename)
+        ext = os.path.splitext(orig_name)[1].lower()
+        if not ext:
+            ext = '.png'
+
+        target_name = f"{uuid.uuid4().hex[:10]}{ext}"
+        filepath = os.path.join(CUSTOM_ELEMENT_DIR, target_name)
+
+        if remove_bg or is_valid_hex_color(recolor_hex) or trim:
+            img = PILImage.open(file.stream)
+            img = process_logo_image(img, remove_bg, recolor_hex, trim)
+            target_name = f"{uuid.uuid4().hex[:10]}.png"
+            filepath = os.path.join(CUSTOM_ELEMENT_DIR, target_name)
+            img.save(filepath, format='PNG')
+        else:
+            file.save(filepath)
+
+        return jsonify({
+            'success': True,
+            'filename': target_name,
+            'url': url_for('static', filename=f'custom_elements/{target_name}')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/reprocess_team_logo', methods=['POST'])
+def reprocess_team_logo():
+    """對已上傳的隊伍 LOGO 事後補做自動去背 / 自動改配色，不需重新上傳檔案"""
+    try:
+        data = request.get_json(force=True) or {}
+        team_name = sanitize_filename(data.get('team_name', '')).strip()
+        remove_bg = bool(data.get('remove_bg'))
+        recolor_hex = (data.get('recolor_hex') or '').strip()
+        trim = bool(data.get('trim'))
+
+        if not team_name:
+            return jsonify({'success': False, 'error': '缺少隊伍名稱'}), 400
+        if not remove_bg and not is_valid_hex_color(recolor_hex) and not trim:
+            return jsonify({'success': False, 'error': '請至少選擇去背、改配色或去外框其中一項'}), 400
+
+        existing = None
+        for fname in os.listdir(TEAM_LOGO_DIR):
+            if os.path.splitext(fname)[0].strip().lower() == team_name.lower():
+                existing = fname
+                break
+        if not existing:
+            return jsonify({'success': False, 'error': f'找不到隊伍「{team_name}」的既有 LOGO 檔案'}), 404
+
+        filepath = os.path.join(TEAM_LOGO_DIR, existing)
+        img = PILImage.open(filepath)
+        img = process_logo_image(img, remove_bg, recolor_hex, trim)
+
+        # 去背需要透明背景，統一存回 PNG；若原檔副檔名不同則移除舊檔避免殘留重複檔案
+        new_name = os.path.splitext(existing)[0] + '.png'
+        new_path = os.path.join(TEAM_LOGO_DIR, new_name)
+        img.save(new_path, format='PNG')
+        if new_name != existing:
+            os.remove(filepath)
+
+        return jsonify({
+            'success': True,
+            'team_name': team_name,
+            'filename': new_name,
+            'logo_url': url_for('serve_team_logo', filename=new_name)
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -480,6 +619,10 @@ def open_browser():
         pass
 
 if __name__ == '__main__':
+    # 只在真的以伺服器身分啟動時才檢查/補模板底圖，避免單純 import app.py
+    # (例如測試腳本用 importlib 載入其中的函式) 就觸發寫檔副作用。
+    ensure_default_template()
+
     local_ip = get_local_ip()
     print("=" * 60)
     print(" [Volleyball Player ID Studio] 排球員身分證生成器")

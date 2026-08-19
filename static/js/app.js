@@ -67,6 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // User Uploaded Media & Logo Cache
     let userTeamLogoImg = null;
     const teamLogoCache = new Map(); // stem/teamName -> HTMLImageElement
+    const customLogoImgCache = new Map(); // customLogo element id -> HTMLImageElement
 
     // DOM Elements
     const fields = {
@@ -142,7 +143,44 @@ document.addEventListener('DOMContentLoaded', () => {
         for (const [stem] of teamLogoCache.entries()) {
             const badge = document.createElement('span');
             badge.className = 'logo-tag-badge';
-            badge.innerHTML = `🛡️ <strong>${stem}</strong>`;
+            badge.innerHTML = `🛡️ <strong>${stem}</strong> `;
+
+            const reprocessBtn = document.createElement('button');
+            reprocessBtn.type = 'button';
+            reprocessBtn.className = 'logo-reprocess-btn';
+            reprocessBtn.title = '補做自動去背 + 自動改配色（套用模板色調）+ 去除多餘白邊/邊框';
+            reprocessBtn.textContent = '✨';
+            reprocessBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                reprocessBtn.disabled = true;
+                reprocessBtn.textContent = '⏳';
+                try {
+                    const res = await fetch('/api/reprocess_team_logo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            team_name: stem,
+                            remove_bg: true,
+                            recolor_hex: detectTemplateAccentColor(),
+                            trim: true
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        await loadLogoImageFromUrl(data.team_name, `${data.logo_url}?v=${Date.now()}`);
+                    } else {
+                        alert('補做去背/改色/去外框失敗: ' + (data.error || '未知錯誤'));
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert('無法連接伺服器補做去背/改色/去外框。');
+                } finally {
+                    reprocessBtn.disabled = false;
+                    reprocessBtn.textContent = '✨';
+                }
+            });
+
+            badge.appendChild(reprocessBtn);
             listEl.appendChild(badge);
         }
     }
@@ -265,6 +303,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const textInput = document.querySelector(`.static-text-input[data-field="${fc.id}"]`);
                 if (textInput) textInput.value = fc.source.text;
             }
+            const colorRow = document.querySelector(`.field-color-row[data-field="${fc.id}"]`);
+            if (colorRow) syncColorRow(colorRow, fc);
         });
 
         const box = LAYOUT.logo.box;
@@ -299,6 +339,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (barcodeBoxW) barcodeBoxW.value = Math.round(bcBox.w * CARD_WIDTH);
             if (barcodeBoxH) barcodeBoxH.value = Math.round(bcBox.h * CARD_HEIGHT);
         }
+
+        rebuildCustomElementLists();
     }
 
     function updateFieldPosition(fieldId, axis, percentValue) {
@@ -414,6 +456,591 @@ document.addEventListener('DOMContentLoaded', () => {
         return `#${toHex(darken(rSum))}${toHex(darken(gSum))}${toHex(darken(bSum))}`;
     }
 
+    // ==========================================
+    // Field text auto-contrast color picking
+    // ==========================================
+
+    function hexToRgb(hex) {
+        const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+        return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : { r: 0, g: 0, b: 0 };
+    }
+
+    function relativeLuminance({ r, g, b }) {
+        const srgb = [r, g, b].map(v => {
+            v /= 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
+    }
+
+    function contrastRatio(lumA, lumB) {
+        const lighter = Math.max(lumA, lumB);
+        const darker = Math.min(lumA, lumB);
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    // Samples a small rect of a pre-drawn background snapshot (taken after the
+    // template/logo/barcode are drawn but before any text) and returns whichever
+    // of `candidates` has the best WCAG contrast against that local background —
+    // so a field's "auto" color isn't hardcoded to black/white and can be any
+    // admin-defined pair (e.g. white/purple) per field.
+    function pickBestContrastColor(candidates, bgSnapshot, x, y, sampleW, sampleH) {
+        if (!candidates || candidates.length === 0) return '#111111';
+        if (!bgSnapshot) return candidates[0];
+
+        const left = Math.max(0, Math.round(x - sampleW / 2));
+        const top = Math.max(0, Math.round(y - sampleH / 2));
+        const right = Math.min(bgSnapshot.width, left + sampleW);
+        const bottom = Math.min(bgSnapshot.height, top + sampleH);
+
+        const data = bgSnapshot.data;
+        let rSum = 0, gSum = 0, bSum = 0, count = 0;
+        for (let yy = top; yy < bottom; yy += 2) {
+            for (let xx = left; xx < right; xx += 2) {
+                const idx = (yy * bgSnapshot.width + xx) * 4;
+                rSum += data[idx]; gSum += data[idx + 1]; bSum += data[idx + 2];
+                count++;
+            }
+        }
+        if (count === 0) return candidates[0];
+
+        const bgLum = relativeLuminance({ r: rSum / count, g: gSum / count, b: bSum / count });
+
+        let best = candidates[0], bestRatio = -1;
+        for (const c of candidates) {
+            const ratio = contrastRatio(relativeLuminance(hexToRgb(c)), bgLum);
+            if (ratio > bestRatio) { bestRatio = ratio; best = c; }
+        }
+        return best;
+    }
+
+    function findFieldConfig(fieldId) {
+        if (!LAYOUT) return null;
+        return LAYOUT.fields.find(f => f.id === fieldId) ||
+            (LAYOUT.customTexts || []).find(f => f.id === fieldId) ||
+            null;
+    }
+
+    // Builds a text-color control (fixed color picker + "auto" toggle + 2
+    // candidate color pickers) for a field, identified only by id — LAYOUT is
+    // still null when this runs at bootstrap (mirrors how `.pos-control` X/Y
+    // inputs are wired: bound by id now, populated later by
+    // syncLayoutControlsFromLAYOUT once the config has actually loaded).
+    function buildFieldColorControl(fieldId) {
+        const wrap = document.createElement('div');
+        wrap.className = 'field-color-row';
+        wrap.dataset.field = fieldId;
+
+        const tag = document.createElement('span');
+        tag.className = 'pos-tag';
+        tag.textContent = '文字顏色';
+
+        const fixedColorInput = document.createElement('input');
+        fixedColorInput.type = 'color';
+        fixedColorInput.className = 'field-color-fixed';
+        fixedColorInput.value = '#111111';
+
+        const autoLabel = document.createElement('label');
+        autoLabel.className = 'checkbox-label field-color-auto-label';
+        const autoCheckbox = document.createElement('input');
+        autoCheckbox.type = 'checkbox';
+        autoCheckbox.className = 'field-color-auto-toggle';
+        autoLabel.appendChild(autoCheckbox);
+        autoLabel.appendChild(document.createTextNode('🎨 自動配色'));
+
+        const candWrap = document.createElement('div');
+        candWrap.className = 'field-color-candidates';
+        candWrap.style.display = 'none';
+
+        const cand1 = document.createElement('input');
+        cand1.type = 'color';
+        cand1.className = 'field-color-cand field-color-cand-0';
+        cand1.value = '#1a1a1a';
+        const cand2 = document.createElement('input');
+        cand2.type = 'color';
+        cand2.className = 'field-color-cand field-color-cand-1';
+        cand2.value = '#ffffff';
+        candWrap.appendChild(cand1);
+        candWrap.appendChild(cand2);
+
+        function commit() {
+            const fc = findFieldConfig(fieldId);
+            if (!fc) return;
+            if (autoCheckbox.checked) {
+                fc.colorMode = 'auto';
+                fc.colorCandidates = [cand1.value, cand2.value];
+            } else {
+                fc.colorMode = 'fixed';
+                fc.color = fixedColorInput.value;
+            }
+            renderCard();
+        }
+
+        autoCheckbox.addEventListener('change', () => {
+            fixedColorInput.style.display = autoCheckbox.checked ? 'none' : '';
+            candWrap.style.display = autoCheckbox.checked ? 'flex' : 'none';
+            commit();
+        });
+        fixedColorInput.addEventListener('input', commit);
+        cand1.addEventListener('input', commit);
+        cand2.addEventListener('input', commit);
+
+        wrap.appendChild(tag);
+        wrap.appendChild(fixedColorInput);
+        wrap.appendChild(autoLabel);
+        wrap.appendChild(candWrap);
+        return wrap;
+    }
+
+    function syncColorRow(rowEl, fc) {
+        const fixedColorInput = rowEl.querySelector('.field-color-fixed');
+        const autoCheckbox = rowEl.querySelector('.field-color-auto-toggle');
+        const candWrap = rowEl.querySelector('.field-color-candidates');
+        const cand1 = rowEl.querySelector('.field-color-cand-0');
+        const cand2 = rowEl.querySelector('.field-color-cand-1');
+        const isAuto = fc.colorMode === 'auto';
+
+        if (fixedColorInput && fc.color && /^#[0-9a-f]{6}$/i.test(fc.color)) fixedColorInput.value = fc.color;
+        if (autoCheckbox) autoCheckbox.checked = isAuto;
+        if (fixedColorInput) fixedColorInput.style.display = isAuto ? 'none' : '';
+        if (candWrap) candWrap.style.display = isAuto ? 'flex' : 'none';
+
+        const candidates = Array.isArray(fc.colorCandidates) ? fc.colorCandidates : [];
+        if (cand1 && candidates[0]) cand1.value = candidates[0];
+        if (cand2 && candidates[1]) cand2.value = candidates[1];
+    }
+
+    // ==========================================
+    // Template-level custom text/logo elements
+    // (freely added/removed by the admin, shared by every card)
+    // ==========================================
+
+    function genElementId(prefix) {
+        return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
+    }
+
+    // A generic X%/Y%/W(px)/H(px) box editor, center-anchored on resize (reuses
+    // resizeBoxKeepingCenter without needing global input IDs, since a template
+    // can now have any number of these boxes at once).
+    //
+    // getImage (optional) returns the HTMLImageElement currently shown in this
+    // box, if any. When present, W/H are kept locked to that image's natural
+    // aspect ratio — editing one recalculates the other — so a LOGO never gets
+    // squashed/stretched. Falls back to independent W/H resizing (the old
+    // behavior) when no image is loaded yet.
+    function buildBoxPositionControl(box, onChange, getImage) {
+        const wrap = document.createElement('div');
+        wrap.className = 'pos-control';
+
+        const tag = document.createElement('span');
+        tag.className = 'pos-tag';
+        tag.textContent = '位置/大小';
+        wrap.appendChild(tag);
+
+        function numInput(labelText, value, step, min) {
+            const label = document.createElement('label');
+            label.textContent = labelText + ' ';
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = step;
+            input.min = min;
+            input.value = value;
+            label.appendChild(input);
+            wrap.appendChild(label);
+            return input;
+        }
+
+        const xInput = numInput('X%', (box.x * 100).toFixed(1), 0.1, 0);
+        const yInput = numInput('Y%', (box.y * 100).toFixed(1), 0.1, 0);
+        const wInput = numInput('寬px', Math.round(box.w * CARD_WIDTH), 1, 10);
+        const hInput = numInput('高px', Math.round(box.h * CARD_HEIGHT), 1, 10);
+
+        function currentImageRatio() {
+            const img = getImage ? getImage() : null;
+            return (img && img.naturalWidth > 0 && img.naturalHeight > 0)
+                ? img.naturalWidth / img.naturalHeight
+                : null;
+        }
+
+        // Resize from center, recalculating the OTHER axis from `ratio` (image
+        // width/height) when known, so the box never distorts the image.
+        function resizeLocked(axis, pxValue, ratio) {
+            const num = parseFloat(pxValue);
+            if (isNaN(num) || num <= 0) return false;
+            const centerX = box.x + box.w / 2;
+            const centerY = box.y + box.h / 2;
+            if (axis === 'w') {
+                box.w = num / CARD_WIDTH;
+                box.h = (num / ratio) / CARD_HEIGHT;
+            } else {
+                box.h = num / CARD_HEIGHT;
+                box.w = (num * ratio) / CARD_WIDTH;
+            }
+            box.x = centerX - box.w / 2;
+            box.y = centerY - box.h / 2;
+            return true;
+        }
+
+        xInput.addEventListener('input', () => {
+            const n = parseFloat(xInput.value);
+            if (!isNaN(n)) { box.x = n / 100; onChange(); }
+        });
+        yInput.addEventListener('input', () => {
+            const n = parseFloat(yInput.value);
+            if (!isNaN(n)) { box.y = n / 100; onChange(); }
+        });
+        wInput.addEventListener('input', () => {
+            const ratio = currentImageRatio();
+            const resized = ratio
+                ? resizeLocked('w', wInput.value, ratio)
+                : resizeBoxKeepingCenter(box, 'w', wInput.value, null, null);
+            if (resized) {
+                xInput.value = (box.x * 100).toFixed(1);
+                yInput.value = (box.y * 100).toFixed(1);
+                if (ratio) hInput.value = Math.round(box.h * CARD_HEIGHT);
+                onChange();
+            }
+        });
+        hInput.addEventListener('input', () => {
+            const ratio = currentImageRatio();
+            const resized = ratio
+                ? resizeLocked('h', hInput.value, ratio)
+                : resizeBoxKeepingCenter(box, 'h', hInput.value, null, null);
+            if (resized) {
+                xInput.value = (box.x * 100).toFixed(1);
+                yInput.value = (box.y * 100).toFixed(1);
+                if (ratio) wInput.value = Math.round(box.w * CARD_WIDTH);
+                onChange();
+            }
+        });
+
+        return { el: wrap, wInput, hInput };
+    }
+
+    function loadCustomLogoImage(id, url) {
+        return new Promise((resolve) => {
+            if (!url) return resolve(null);
+            const img = new Image();
+            img.onload = () => {
+                customLogoImgCache.set(id, img);
+                renderCard();
+                resolve(img);
+            };
+            img.onerror = () => {
+                console.error('自訂 LOGO 圖片載入失敗:', url);
+                alert('圖片已上傳成功，但瀏覽器載入圖片時失敗，所以預覽沒有更新。\n請按 F12 開啟開發者工具的 Console 分頁，看看是否有紅色錯誤訊息，並回報給我。\n圖片網址: ' + url);
+                resolve(null);
+            };
+            img.src = `${url}?v=${Date.now()}`;
+        });
+    }
+
+    function renderCustomTextRow(item) {
+        const row = document.createElement('div');
+        row.className = 'custom-element-row';
+        row.dataset.id = item.id;
+
+        const header = document.createElement('div');
+        header.className = 'custom-element-header';
+
+        const textInput = document.createElement('input');
+        textInput.type = 'text';
+        textInput.className = 'custom-text-input';
+        textInput.placeholder = '輸入文字內容';
+        textInput.value = (item.source && item.source.text) || '';
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn btn-sm btn-outline custom-element-delete';
+        delBtn.textContent = '🗑️ 刪除';
+
+        header.appendChild(textInput);
+        header.appendChild(delBtn);
+
+        const posControl = buildBoxPositionControlForText(item);
+        const colorRow = buildFieldColorControl(item.id);
+        syncColorRow(colorRow, item);
+
+        row.appendChild(header);
+        row.appendChild(posControl);
+        row.appendChild(colorRow);
+
+        textInput.addEventListener('input', () => {
+            item.source.text = textInput.value;
+            renderCard();
+        });
+        delBtn.addEventListener('click', () => {
+            if (!LAYOUT || !LAYOUT.customTexts) return;
+            const idx = LAYOUT.customTexts.findIndex(f => f.id === item.id);
+            if (idx >= 0) LAYOUT.customTexts.splice(idx, 1);
+            row.remove();
+            renderCard();
+        });
+
+        return row;
+    }
+
+    // Simple X%/Y% position editor for a text element (no W/H — text has no box).
+    function buildBoxPositionControlForText(item) {
+        const wrap = document.createElement('div');
+        wrap.className = 'pos-control';
+
+        const tag = document.createElement('span');
+        tag.className = 'pos-tag';
+        tag.textContent = '文字位置';
+        wrap.appendChild(tag);
+
+        const xLabel = document.createElement('label');
+        xLabel.textContent = 'X ';
+        const xInput = document.createElement('input');
+        xInput.type = 'number'; xInput.className = 'pos-x'; xInput.min = 0; xInput.max = 100; xInput.step = 0.1;
+        xInput.value = (item.position.x * 100).toFixed(1);
+        xLabel.appendChild(xInput);
+
+        const yLabel = document.createElement('label');
+        yLabel.textContent = 'Y ';
+        const yInput = document.createElement('input');
+        yInput.type = 'number'; yInput.className = 'pos-y'; yInput.min = 0; yInput.max = 100; yInput.step = 0.1;
+        yInput.value = (item.position.y * 100).toFixed(1);
+        yLabel.appendChild(yInput);
+
+        wrap.appendChild(xLabel);
+        wrap.appendChild(yLabel);
+
+        xInput.addEventListener('input', () => {
+            const n = parseFloat(xInput.value);
+            if (!isNaN(n)) { item.position.x = n / 100; renderCard(); }
+        });
+        yInput.addEventListener('input', () => {
+            const n = parseFloat(yInput.value);
+            if (!isNaN(n)) { item.position.y = n / 100; renderCard(); }
+        });
+
+        return wrap;
+    }
+
+    function renderCustomLogoRow(item) {
+        const row = document.createElement('div');
+        row.className = 'custom-element-row';
+        row.dataset.id = item.id;
+
+        const header = document.createElement('div');
+        header.className = 'custom-element-header';
+
+        // "更換圖片" ONLY ever means "pick a different image file" — it must
+        // never be the button someone has to press just to make a checkbox
+        // they already ticked take effect. That's what btnApply is for.
+        const uploadBtn = document.createElement('button');
+        uploadBtn.type = 'button';
+        uploadBtn.className = 'btn btn-sm btn-outline';
+        uploadBtn.textContent = item.imageUrl ? '🖼️ 更換圖片' : '🖼️ 上傳圖片';
+
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/png, image/jpeg, image/jpg, image/webp';
+        fileInput.style.display = 'none';
+
+        // Re-applies the CURRENT checkbox/color settings to the already-picked
+        // file — lets someone tick 自動去背/改配色/去外框 (or tweak the color)
+        // AFTER uploading without having to re-pick the same file.
+        const applyBtn = document.createElement('button');
+        applyBtn.type = 'button';
+        applyBtn.className = 'btn btn-sm btn-primary';
+        applyBtn.textContent = '🔄 套用目前設定';
+        applyBtn.title = '用下面目前勾選的去背/改配色/去外框設定，重新處理剛剛選的圖片';
+        applyBtn.disabled = true;
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn btn-sm btn-outline custom-element-delete';
+        delBtn.textContent = '🗑️ 刪除';
+
+        header.appendChild(uploadBtn);
+        header.appendChild(fileInput);
+        header.appendChild(applyBtn);
+        header.appendChild(delBtn);
+
+        const processOptions = document.createElement('div');
+        processOptions.className = 'logo-process-options';
+        const removeBgLabel = document.createElement('label');
+        removeBgLabel.className = 'checkbox-label';
+        const removeBgCb = document.createElement('input');
+        removeBgCb.type = 'checkbox';
+        removeBgLabel.appendChild(removeBgCb);
+        removeBgLabel.appendChild(document.createTextNode(' 🪄 自動去背'));
+        const recolorLabel = document.createElement('label');
+        recolorLabel.className = 'checkbox-label';
+        const recolorCb = document.createElement('input');
+        recolorCb.type = 'checkbox';
+        recolorLabel.appendChild(recolorCb);
+        recolorLabel.appendChild(document.createTextNode(' 🎨 自動改配色'));
+
+        // Target color for recolor — defaults to the auto-detected template
+        // accent the first time it's shown, but stays fully user-adjustable
+        // afterward (auto-pick isn't always what people want).
+        const recolorColorInput = document.createElement('input');
+        recolorColorInput.type = 'color';
+        recolorColorInput.className = 'logo-recolor-color';
+        recolorColorInput.title = '改配色的目標顏色（預設抓模板主色，可自行調整）';
+        recolorColorInput.style.display = 'none';
+        recolorCb.addEventListener('change', () => {
+            if (recolorCb.checked && !recolorColorInput.dataset.userSet) {
+                recolorColorInput.value = detectTemplateAccentColor();
+            }
+            recolorColorInput.style.display = recolorCb.checked ? 'inline-block' : 'none';
+        });
+        recolorColorInput.addEventListener('input', () => { recolorColorInput.dataset.userSet = 'true'; });
+
+        const trimLabel = document.createElement('label');
+        trimLabel.className = 'checkbox-label';
+        const trimCb = document.createElement('input');
+        trimCb.type = 'checkbox';
+        trimLabel.appendChild(trimCb);
+        trimLabel.appendChild(document.createTextNode(' ✂️ 去除多餘白邊/邊框'));
+        processOptions.appendChild(removeBgLabel);
+        processOptions.appendChild(recolorLabel);
+        processOptions.appendChild(recolorColorInput);
+        processOptions.appendChild(trimLabel);
+
+        const processingHint = document.createElement('span');
+        processingHint.className = 'logo-processing-hint';
+        processingHint.textContent = '⏳ 處理中（依選項可能需要數秒到數十秒，第一次使用去背功能會更久），請稍候…';
+        processingHint.style.display = 'none';
+
+        const boxControl = buildBoxPositionControl(item.box, () => renderCard(), () => customLogoImgCache.get(item.id));
+
+        row.appendChild(header);
+        row.appendChild(processOptions);
+        row.appendChild(processingHint);
+        row.appendChild(boxControl.el);
+
+        // A freshly (re)loaded image's natural aspect ratio becomes the box's
+        // locked ratio: keep the box's current width, recompute height to match
+        // so the LOGO is never shown squashed/stretched.
+        async function fitBoxToImage(url) {
+            const img = await loadCustomLogoImage(item.id, url);
+            if (!img || !img.naturalWidth || !img.naturalHeight) return;
+            const ratio = img.naturalWidth / img.naturalHeight;
+            const centerX = item.box.x + item.box.w / 2;
+            const centerY = item.box.y + item.box.h / 2;
+            const pxW = item.box.w * CARD_WIDTH;
+            item.box.h = (pxW / ratio) / CARD_HEIGHT;
+            item.box.x = centerX - item.box.w / 2;
+            item.box.y = centerY - item.box.h / 2;
+            boxControl.hInput.value = Math.round(item.box.h * CARD_HEIGHT);
+            renderCard();
+        }
+
+        let selectedFile = null;
+
+        async function uploadWithCurrentSettings(file) {
+            const fd = new FormData();
+            fd.append('file', file);
+            if (removeBgCb.checked) fd.append('remove_bg', 'true');
+            if (recolorCb.checked) fd.append('recolor_hex', recolorColorInput.value || detectTemplateAccentColor());
+            if (trimCb.checked) fd.append('trim', 'true');
+            uploadBtn.disabled = true;
+            applyBtn.disabled = true;
+            processingHint.style.display = (removeBgCb.checked || recolorCb.checked || trimCb.checked) ? 'inline' : 'none';
+            try {
+                const res = await fetch('/api/upload_custom_asset', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.success) {
+                    item.imageUrl = data.url;
+                    uploadBtn.textContent = '🖼️ 更換圖片';
+                    await fitBoxToImage(data.url);
+                } else {
+                    alert('上傳失敗: ' + (data.error || '未知錯誤'));
+                }
+            } catch (err) {
+                console.error(err);
+                alert('無法連接伺服器上傳圖片。');
+            } finally {
+                uploadBtn.disabled = false;
+                applyBtn.disabled = !selectedFile;
+                processingHint.style.display = 'none';
+            }
+        }
+
+        uploadBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            fileInput.value = '';
+            if (!file) return;
+            selectedFile = file;
+            applyBtn.disabled = false;
+            await uploadWithCurrentSettings(file);
+        });
+
+        applyBtn.addEventListener('click', () => {
+            if (!selectedFile) return;
+            uploadWithCurrentSettings(selectedFile);
+        });
+
+        delBtn.addEventListener('click', () => {
+            if (!LAYOUT || !LAYOUT.customLogos) return;
+            const idx = LAYOUT.customLogos.findIndex(f => f.id === item.id);
+            if (idx >= 0) LAYOUT.customLogos.splice(idx, 1);
+            customLogoImgCache.delete(item.id);
+            row.remove();
+            renderCard();
+        });
+
+        if (item.imageUrl) loadCustomLogoImage(item.id, item.imageUrl);
+
+        return row;
+    }
+
+    function addCustomText() {
+        if (!LAYOUT) return;
+        if (!LAYOUT.customTexts) LAYOUT.customTexts = [];
+        const item = {
+            id: genElementId('custom_text'),
+            source: { mode: 'static', text: '新文字' },
+            position: { x: 0.5, y: 0.5 },
+            align: { h: 'left', v: 'middle' },
+            font: { family: '"Noto Sans TC", sans-serif', weight: 700, sizeFrac: 0.03 },
+            color: '#ffffff',
+            colorMode: 'fixed',
+            colorCandidates: []
+        };
+        LAYOUT.customTexts.push(item);
+        const list = document.getElementById('customTextsList');
+        if (list) list.appendChild(renderCustomTextRow(item));
+        renderCard();
+    }
+
+    function addCustomLogo() {
+        if (!LAYOUT) return;
+        if (!LAYOUT.customLogos) LAYOUT.customLogos = [];
+        const item = {
+            id: genElementId('custom_logo'),
+            imageUrl: '',
+            box: { x: 0.35, y: 0.35, w: 0.2, h: 0.2 },
+            fit: 'contain',
+            border: { enabled: false, color: '#4b1a8f', widthFrac: 0.005 },
+            shadow: { enabled: false }
+        };
+        LAYOUT.customLogos.push(item);
+        const list = document.getElementById('customLogosList');
+        if (list) list.appendChild(renderCustomLogoRow(item));
+        renderCard();
+    }
+
+    function rebuildCustomElementLists() {
+        if (!LAYOUT) return;
+        const customTextsList = document.getElementById('customTextsList');
+        if (customTextsList) {
+            customTextsList.innerHTML = '';
+            (LAYOUT.customTexts || []).forEach(item => customTextsList.appendChild(renderCustomTextRow(item)));
+        }
+        const customLogosList = document.getElementById('customLogosList');
+        if (customLogosList) {
+            customLogosList.innerHTML = '';
+            (LAYOUT.customLogos || []).forEach(item => customLogosList.appendChild(renderCustomLogoRow(item)));
+        }
+    }
+
     function initLayoutControls() {
         document.querySelectorAll('.pos-control').forEach(el => {
             const fieldId = el.dataset.field;
@@ -421,7 +1048,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const yInput = el.querySelector('.pos-y');
             if (xInput) xInput.addEventListener('input', () => updateFieldPosition(fieldId, 'x', xInput.value));
             if (yInput) yInput.addEventListener('input', () => updateFieldPosition(fieldId, 'y', yInput.value));
+
+            // Inject a matching text-color control right after each field's
+            // position box (built here instead of hand-duplicated per field in HTML).
+            const colorRow = buildFieldColorControl(fieldId);
+            el.parentNode.insertBefore(colorRow, el.nextSibling);
         });
+
+        // Template-level custom text/logo elements: add buttons
+        const btnAddCustomText = document.getElementById('btnAddCustomText');
+        if (btnAddCustomText) btnAddCustomText.addEventListener('click', addCustomText);
+        const btnAddCustomLogo = document.getElementById('btnAddCustomLogo');
+        if (btnAddCustomLogo) btnAddCustomLogo.addEventListener('click', addCustomLogo);
 
         // Editable caption/decorative text (not tied to card data)
         document.querySelectorAll('.static-text-input').forEach(el => {
@@ -656,11 +1294,93 @@ document.addEventListener('DOMContentLoaded', () => {
         // 2. Team Logo (drawn before text so text always stays on top)
         drawLogo(data, activeLogoImg);
 
+        // 2b. Admin-added custom logo/image elements (template-level, shared by every card).
+        // Guarded per-item so one malformed/corrupt entry can't silently abort every
+        // element drawn after it (the barcode, all text fields, everything).
+        (LAYOUT.customLogos || []).forEach(cfg => {
+            try { drawCustomLogo(cfg); } catch (e) { console.error('自訂 LOGO 繪製失敗:', cfg.id, e); }
+        });
+
         // 3. Scannable barcode generated from the ID number
         drawIdBarcode(data);
 
+        // Snapshot the canvas now — template/logo/barcode/custom logos are drawn,
+        // no text yet — so "auto" text colors sample the true background instead
+        // of glyphs left behind by an earlier field drawn in this same pass.
+        let bgSnapshot = null;
+        try {
+            bgSnapshot = ctx.getImageData(0, 0, CARD_WIDTH, CARD_HEIGHT);
+        } catch (e) {
+            bgSnapshot = null; // e.g. canvas tainted by a cross-origin image
+        }
+
         // 4. Every text field, positioned purely from the config file
-        LAYOUT.fields.forEach(fieldCfg => drawConfigField(fieldCfg, data));
+        LAYOUT.fields.forEach(fieldCfg => drawConfigField(fieldCfg, data, bgSnapshot));
+
+        // 4b. Admin-added custom text elements, drawn last so they stay on top
+        (LAYOUT.customTexts || []).forEach(fieldCfg => {
+            try { drawConfigField(fieldCfg, data, bgSnapshot); } catch (e) { console.error('自訂文字繪製失敗:', fieldCfg.id, e); }
+        });
+    }
+
+    // Simplified variant of drawLogo() for a template-level custom logo/image
+    // element: same "contain" fit + optional border/shadow, but reads its own
+    // box/border/shadow (not LAYOUT.logo) and its own cached image (not the
+    // per-team logo lookup).
+    function drawCustomLogo(logoCfg) {
+        const box = logoCfg.box;
+        if (!box) return;
+        const pX = box.x * CARD_WIDTH;
+        const pY = box.y * CARD_HEIGHT;
+        const pW = box.w * CARD_WIDTH;
+        const pH = box.h * CARD_HEIGHT;
+
+        const border = logoCfg.border || {};
+        const shadow = logoCfg.shadow || {};
+
+        if (shadow.enabled) {
+            ctx.save();
+            ctx.shadowColor = shadow.color || 'rgba(0,0,0,0.35)';
+            ctx.shadowBlur = (shadow.blurFrac != null ? shadow.blurFrac : 0.012) * CARD_HEIGHT;
+            ctx.shadowOffsetX = (shadow.offsetXFrac || 0) * CARD_WIDTH;
+            ctx.shadowOffsetY = (shadow.offsetYFrac != null ? shadow.offsetYFrac : 0.004) * CARD_HEIGHT;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(pX, pY, pW, pH);
+            ctx.restore();
+        }
+
+        const img = customLogoImgCache.get(logoCfg.id);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(pX, pY, pW, pH);
+        ctx.clip();
+
+        if (img && img.width > 0 && img.height > 0) {
+            const imgRatio = img.width / img.height;
+            const boxRatio = pW / pH;
+            let drawW, drawH;
+            if (imgRatio > boxRatio) {
+                drawW = pW;
+                drawH = drawW / imgRatio;
+            } else {
+                drawH = pH;
+                drawW = drawH * imgRatio;
+            }
+            const drawX = pX + (pW - drawW) / 2;
+            const drawY = pY + (pH - drawH) / 2;
+            ctx.drawImage(img, drawX, drawY, drawW, drawH);
+        }
+
+        ctx.restore();
+
+        if (border.enabled) {
+            ctx.save();
+            ctx.strokeStyle = border.color || '#4b1a8f';
+            ctx.lineWidth = (border.widthFrac || 0.005) * CARD_HEIGHT;
+            ctx.strokeRect(pX, pY, pW, pH);
+            ctx.restore();
+        }
     }
 
     function drawIdBarcode(data) {
@@ -712,7 +1432,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return String(text);
     }
 
-    function drawConfigField(fieldCfg, data) {
+    function drawConfigField(fieldCfg, data, bgSnapshot) {
         const text = resolveFieldText(fieldCfg, data);
         if (!text) return;
 
@@ -721,10 +1441,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const family = fieldCfg.font.family;
         const weight = fieldCfg.font.weight || 400;
         let sizePx = Math.round(fieldCfg.font.sizeFrac * CARD_HEIGHT);
-        ctx.fillStyle = fieldCfg.color || '#111111';
         ctx.textAlign = fieldCfg.align.h;
         ctx.textBaseline = fieldCfg.align.v;
         ctx.font = `${weight} ${sizePx}px ${family}`;
+
+        const x = fieldCfg.position.x * CARD_WIDTH;
+        const y = fieldCfg.position.y * CARD_HEIGHT;
+
+        if (fieldCfg.colorMode === 'auto' && Array.isArray(fieldCfg.colorCandidates) && fieldCfg.colorCandidates.length) {
+            const sampleSize = Math.max(20, sizePx * 1.4);
+            ctx.fillStyle = pickBestContrastColor(fieldCfg.colorCandidates, bgSnapshot, x, y, sampleSize, sampleSize);
+        } else {
+            ctx.fillStyle = fieldCfg.color || '#111111';
+        }
 
         // Auto-shrink to fit maxWidthFrac, down to minSizeFrac
         if (fieldCfg.maxWidthFrac) {
@@ -736,8 +1465,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const x = fieldCfg.position.x * CARD_WIDTH;
-        const y = fieldCfg.position.y * CARD_HEIGHT;
         ctx.fillText(text, x, y);
 
         ctx.restore();
@@ -1406,17 +2133,91 @@ document.addEventListener('DOMContentLoaded', () => {
         // Single Logo Upload in Logo Tab
         const teamLogoInput = document.getElementById('teamLogoUpload');
         const singleDropZone = document.getElementById('singleLogoDropZone');
+        const teamLogoRemoveBgCb = document.getElementById('teamLogoRemoveBg');
+        const teamLogoRecolorCb = document.getElementById('teamLogoRecolor');
+        const teamLogoRecolorColorInput = document.getElementById('teamLogoRecolorColor');
+        const teamLogoTrimCb = document.getElementById('teamLogoTrim');
+        const btnApplyTeamLogoSettings = document.getElementById('btnApplyTeamLogoSettings');
+        const singleUploadHint = singleDropZone ? singleDropZone.querySelector('.upload-hint') : null;
+        const singleUploadHintDefaultText = singleUploadHint ? singleUploadHint.textContent : '';
+        let teamLogoSelectedFile = null;
 
-        const processSingleLogo = (file) => {
+        if (teamLogoRecolorCb && teamLogoRecolorColorInput) {
+            teamLogoRecolorCb.addEventListener('change', () => {
+                if (teamLogoRecolorCb.checked && !teamLogoRecolorColorInput.dataset.userSet) {
+                    teamLogoRecolorColorInput.value = detectTemplateAccentColor();
+                }
+                teamLogoRecolorColorInput.style.display = teamLogoRecolorCb.checked ? 'inline-block' : 'none';
+            });
+            teamLogoRecolorColorInput.addEventListener('input', () => {
+                teamLogoRecolorColorInput.dataset.userSet = 'true';
+            });
+        }
+
+        function setSingleLogoProcessing(isProcessing) {
+            if (!singleUploadHint) return;
+            singleUploadHint.textContent = isProcessing
+                ? '⏳ 處理中（依選項可能需要數秒到數十秒，第一次使用去背功能會更久），請稍候…'
+                : singleUploadHintDefaultText;
+        }
+
+        function getLogoProcessOpts() {
+            return {
+                removeBg: !!(teamLogoRemoveBgCb && teamLogoRemoveBgCb.checked),
+                recolorHex: (teamLogoRecolorCb && teamLogoRecolorCb.checked)
+                    ? (teamLogoRecolorColorInput.value || detectTemplateAccentColor())
+                    : null,
+                trim: !!(teamLogoTrimCb && teamLogoTrimCb.checked)
+            };
+        }
+
+        // "更換圖片" 只用來重新挑檔案；勾選框改變後要套用，按下面的「🔄 套用目前設定」
+        // 用同一張已選檔案重新處理，不用重新選一次圖檔。
+        const processSingleLogo = (file, opts) => {
             if (!file) return;
+            opts = opts || {};
+            const curTeam = fields.teamName ? fields.teamName.value.trim() : '';
+            const stem = file.name.replace(/\.[^/.]+$/, "").trim();
+
+            if (opts.removeBg || opts.recolorHex || opts.trim) {
+                // Server-side processing changes the actual pixels, so wait for
+                // the processed image back instead of instantly previewing the
+                // raw (unprocessed) upload. This can take a while (AI background
+                // removal especially), so show a "processing" hint — otherwise it
+                // looks like nothing happened while the request is in flight.
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('team_name', curTeam || stem);
+                if (opts.removeBg) fd.append('remove_bg', 'true');
+                if (opts.recolorHex) fd.append('recolor_hex', opts.recolorHex);
+                if (opts.trim) fd.append('trim', 'true');
+                setSingleLogoProcessing(true);
+                if (btnApplyTeamLogoSettings) btnApplyTeamLogoSettings.disabled = true;
+                fetch('/api/upload_team_logo', { method: 'POST', body: fd })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            return loadLogoImageFromUrl(data.team_name, `${data.logo_url}?v=${Date.now()}`);
+                        }
+                        alert('上傳/處理失敗: ' + (data.error || '未知錯誤'));
+                    })
+                    .catch(err => {
+                        console.error('Logo upload error:', err);
+                        alert('無法連接伺服器處理 LOGO。');
+                    })
+                    .finally(() => {
+                        setSingleLogoProcessing(false);
+                        if (btnApplyTeamLogoSettings) btnApplyTeamLogoSettings.disabled = !teamLogoSelectedFile;
+                    });
+                return;
+            }
+
             const reader = new FileReader();
             reader.onload = (event) => {
                 const img = new Image();
                 img.onload = () => {
                     userTeamLogoImg = img;
-                    const curTeam = fields.teamName ? fields.teamName.value.trim() : '';
                     if (curTeam) teamLogoCache.set(curTeam, img);
-                    const stem = file.name.replace(/\.[^/.]+$/, "").trim();
                     if (stem) teamLogoCache.set(stem, img);
                     updateDetectedLogosBadge();
                     renderCard();
@@ -1435,7 +2236,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (teamLogoInput) {
             teamLogoInput.addEventListener('change', (e) => {
-                processSingleLogo(e.target.files[0]);
+                const file = e.target.files[0];
+                if (!file) return;
+                teamLogoSelectedFile = file;
+                if (btnApplyTeamLogoSettings) btnApplyTeamLogoSettings.disabled = false;
+                processSingleLogo(file, getLogoProcessOpts());
+            });
+        }
+
+        if (btnApplyTeamLogoSettings) {
+            btnApplyTeamLogoSettings.addEventListener('click', () => {
+                if (!teamLogoSelectedFile) return;
+                processSingleLogo(teamLogoSelectedFile, getLogoProcessOpts());
             });
         }
 
@@ -1455,7 +2267,9 @@ document.addEventListener('DOMContentLoaded', () => {
             singleDropZone.addEventListener('drop', (e) => {
                 const dt = e.dataTransfer;
                 if (dt.files && dt.files.length > 0) {
-                    processSingleLogo(dt.files[0]);
+                    teamLogoSelectedFile = dt.files[0];
+                    if (btnApplyTeamLogoSettings) btnApplyTeamLogoSettings.disabled = false;
+                    processSingleLogo(dt.files[0], getLogoProcessOpts());
                 }
             });
         }

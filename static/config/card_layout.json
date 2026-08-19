@@ -313,5 +313,46 @@
     "enabled": true,
     "widthPx": 1452,
     "heightPx": 903
-  }
+  },
+  "customLogos": [
+    {
+      "id": "custom_logo_89b2e85d",
+      "imageUrl": "/static/custom_elements/e877491dfb.png",
+      "box": {
+        "x": 0.8583719372662834,
+        "y": 0.8498216055500496,
+        "w": 0.060277948317240614,
+        "h": 0.07928642220019821
+      },
+      "fit": "contain",
+      "border": {
+        "enabled": false,
+        "color": "#4b1a8f",
+        "widthFrac": 0.005
+      },
+      "shadow": {
+        "enabled": false
+      }
+    },
+    {
+      "id": "custom_logo_b32fe765",
+      "imageUrl": "/static/custom_elements/c63936f72f.png",
+      "box": {
+        "x": 0.79,
+        "y": 0.8448662041625371,
+        "w": 0.04811462998473009,
+        "h": 0.08919722497522299
+      },
+      "fit": "contain",
+      "border": {
+        "enabled": false,
+        "color": "#4b1a8f",
+        "widthFrac": 0.005
+      },
+      "shadow": {
+        "enabled": false
+      }
+    }
+  ],
+  "customTexts": []
 }

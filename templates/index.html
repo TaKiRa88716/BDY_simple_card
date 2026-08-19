@@ -130,6 +130,7 @@
             <div class="form-tabs">
                 <button class="tab-btn active" data-tab="tab-basic">基本資料</button>
                 <button class="tab-btn" data-tab="tab-photo">球隊標誌 (Logo)</button>
+                <button class="tab-btn" data-tab="tab-custom">🧩 自訂元素</button>
                 <button class="tab-btn" data-tab="tab-batch">📁 批次生成 (Excel/CSV)</button>
             </div>
 
@@ -336,6 +337,16 @@
                             <span class="upload-hint">自動配對當前隊伍並儲存至 隊伍Logo/</span>
                         </div>
                     </div>
+                    <div class="logo-process-options">
+                        <label class="checkbox-label"><input type="checkbox" id="teamLogoRemoveBg"> 🪄 自動去背</label>
+                        <label class="checkbox-label"><input type="checkbox" id="teamLogoRecolor"> 🎨 自動改配色</label>
+                        <input type="color" id="teamLogoRecolorColor" class="logo-recolor-color" style="display:none;" title="改配色的目標顏色（預設抓模板主色，可自行調整）">
+                        <label class="checkbox-label"><input type="checkbox" id="teamLogoTrim"> ✂️ 去除多餘白邊/邊框</label>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary" id="btnApplyTeamLogoSettings" disabled
+                        title="用上面目前勾選的去背/改配色/去外框設定，重新處理剛剛選的圖片">
+                        🔄 套用目前設定
+                    </button>
                 </div>
 
                 <div class="form-group">
@@ -412,6 +423,23 @@
                         <button type="button" class="btn btn-sm btn-outline" id="btnAutoBorderColor">🎨 依模板自動偵測顏色</button>
                     </div>
                 </div>
+            </div>
+
+            <!-- 頁籤: 自訂元素 (自由新增/刪除文字與 LOGO/圖片，套用在整份模板、所有卡片共用) -->
+            <div class="tab-content" id="tab-custom">
+                <div class="form-group">
+                    <label>🧩 自訂文字（可自由新增/刪除，套用在整份模板上，所有卡片共用）</label>
+                    <button type="button" class="btn btn-sm btn-primary" id="btnAddCustomText">＋ 新增文字</button>
+                </div>
+                <div id="customTextsList"><!-- 動態插入自訂文字列 --></div>
+
+                <hr class="divider">
+
+                <div class="form-group">
+                    <label>🖼️ 自訂 LOGO / 圖片（可自由新增/刪除，套用在整份模板上）</label>
+                    <button type="button" class="btn btn-sm btn-primary" id="btnAddCustomLogo">＋ 新增圖片</button>
+                </div>
+                <div id="customLogosList"><!-- 動態插入自訂 LOGO 列 --></div>
             </div>
 
             <!-- 頁籤3: 批次生成 (Excel / CSV) -->
