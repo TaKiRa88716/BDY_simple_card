@@ -305,6 +305,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const colorRow = document.querySelector(`.field-color-row[data-field="${fc.id}"]`);
             if (colorRow) syncColorRow(colorRow, fc);
+            const typoRow = document.querySelector(`.field-typo-row[data-field="${fc.id}"]`);
+            if (typoRow) syncTypographyRow(typoRow, fc);
         });
 
         const box = LAYOUT.logo.box;
@@ -611,6 +613,124 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
+    // Field typography (font family / size / bold / italic)
+    // ==========================================
+
+    // Curated combos matching what's already used across the built-in fields,
+    // rather than a free-text font name — keeps every option guaranteed to
+    // actually be loaded (see the Google Fonts <link> in index.html).
+    const FONT_FAMILY_OPTIONS = [
+        { label: '中文黑體 (Noto Sans TC)', value: '"Noto Sans TC", sans-serif' },
+        { label: '中英混合 (Noto Sans TC + Outfit)', value: '"Noto Sans TC", "Outfit", sans-serif' },
+        { label: '科技感英文 (Orbitron)', value: '"Orbitron", sans-serif' },
+        { label: '科技感英文+中文 (Orbitron + Noto Sans TC)', value: '"Orbitron", "Noto Sans TC", sans-serif' },
+        { label: '等寬證號/數字 (Orbitron)', value: '"Orbitron", monospace' },
+        { label: '現代英文 (Outfit)', value: '"Outfit", sans-serif' }
+    ];
+
+    // Builds a font-family select + size(px) + 粗體/斜體 checkboxes for a field,
+    // identified only by id (same "bound now, populated later" pattern as
+    // buildFieldColorControl — LAYOUT is still null when this runs at bootstrap).
+    function buildFieldTypographyControl(fieldId) {
+        const wrap = document.createElement('div');
+        wrap.className = 'field-typo-row';
+        wrap.dataset.field = fieldId;
+
+        const tag = document.createElement('span');
+        tag.className = 'pos-tag';
+        tag.textContent = '字體樣式';
+        wrap.appendChild(tag);
+
+        const familySelect = document.createElement('select');
+        familySelect.className = 'field-typo-family';
+        FONT_FAMILY_OPTIONS.forEach(opt => {
+            const o = document.createElement('option');
+            o.value = opt.value;
+            o.textContent = opt.label;
+            familySelect.appendChild(o);
+        });
+        wrap.appendChild(familySelect);
+
+        const sizeLabel = document.createElement('label');
+        sizeLabel.textContent = '大小(px) ';
+        const sizeInput = document.createElement('input');
+        sizeInput.type = 'number';
+        sizeInput.min = 6;
+        sizeInput.max = 400;
+        sizeInput.className = 'field-typo-size';
+        sizeLabel.appendChild(sizeInput);
+        wrap.appendChild(sizeLabel);
+
+        const boldLabel = document.createElement('label');
+        boldLabel.className = 'checkbox-label field-typo-toggle';
+        const boldCb = document.createElement('input');
+        boldCb.type = 'checkbox';
+        boldCb.className = 'field-typo-bold';
+        boldLabel.appendChild(boldCb);
+        boldLabel.appendChild(document.createTextNode(' 粗體'));
+        wrap.appendChild(boldLabel);
+
+        const italicLabel = document.createElement('label');
+        italicLabel.className = 'checkbox-label field-typo-toggle';
+        const italicCb = document.createElement('input');
+        italicCb.type = 'checkbox';
+        italicCb.className = 'field-typo-italic';
+        italicLabel.appendChild(italicCb);
+        italicLabel.appendChild(document.createTextNode(' 斜體'));
+        wrap.appendChild(italicLabel);
+
+        function commit() {
+            const fc = findFieldConfig(fieldId);
+            if (!fc) return;
+            fc.font = fc.font || {};
+            fc.font.family = familySelect.value;
+            const px = parseFloat(sizeInput.value);
+            if (!isNaN(px) && px > 0) fc.font.sizeFrac = px / CARD_HEIGHT;
+            fc.font.weight = boldCb.checked ? 700 : 400;
+            fc.font.italic = italicCb.checked;
+            renderCard();
+        }
+
+        familySelect.addEventListener('change', commit);
+        sizeInput.addEventListener('input', commit);
+        boldCb.addEventListener('change', commit);
+        italicCb.addEventListener('change', commit);
+
+        return wrap;
+    }
+
+    function syncTypographyRow(rowEl, fc) {
+        const familySelect = rowEl.querySelector('.field-typo-family');
+        const sizeInput = rowEl.querySelector('.field-typo-size');
+        const boldCb = rowEl.querySelector('.field-typo-bold');
+        const italicCb = rowEl.querySelector('.field-typo-italic');
+        const font = fc.font || {};
+
+        if (familySelect) {
+            const match = FONT_FAMILY_OPTIONS.find(o => o.value === font.family);
+            if (match) {
+                familySelect.value = match.value;
+            } else if (font.family) {
+                // Hand-edited/unrecognized combo — add it as an extra option
+                // instead of silently switching the field to a different font
+                // just because the editor tab was opened.
+                let customOpt = familySelect.querySelector('option[data-custom="true"]');
+                if (!customOpt) {
+                    customOpt = document.createElement('option');
+                    customOpt.dataset.custom = 'true';
+                    familySelect.appendChild(customOpt);
+                }
+                customOpt.value = font.family;
+                customOpt.textContent = '目前設定：' + font.family;
+                familySelect.value = font.family;
+            }
+        }
+        if (sizeInput) sizeInput.value = Math.round((font.sizeFrac || 0.03) * CARD_HEIGHT);
+        if (boldCb) boldCb.checked = (font.weight || 400) >= 700;
+        if (italicCb) italicCb.checked = !!font.italic;
+    }
+
+    // ==========================================
     // Template-level custom text/logo elements
     // (freely added/removed by the admin, shared by every card)
     // ==========================================
@@ -758,11 +878,14 @@ document.addEventListener('DOMContentLoaded', () => {
         header.appendChild(delBtn);
 
         const posControl = buildBoxPositionControlForText(item);
+        const typoRow = buildFieldTypographyControl(item.id);
+        syncTypographyRow(typoRow, item);
         const colorRow = buildFieldColorControl(item.id);
         syncColorRow(colorRow, item);
 
         row.appendChild(header);
         row.appendChild(posControl);
+        row.appendChild(typoRow);
         row.appendChild(colorRow);
 
         textInput.addEventListener('input', () => {
@@ -999,7 +1122,7 @@ document.addEventListener('DOMContentLoaded', () => {
             source: { mode: 'static', text: '新文字' },
             position: { x: 0.5, y: 0.5 },
             align: { h: 'left', v: 'middle' },
-            font: { family: '"Noto Sans TC", sans-serif', weight: 700, sizeFrac: 0.03 },
+            font: { family: '"Noto Sans TC", sans-serif', weight: 700, sizeFrac: 0.03, italic: false },
             color: '#ffffff',
             colorMode: 'fixed',
             colorCandidates: []
@@ -1049,10 +1172,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (xInput) xInput.addEventListener('input', () => updateFieldPosition(fieldId, 'x', xInput.value));
             if (yInput) yInput.addEventListener('input', () => updateFieldPosition(fieldId, 'y', yInput.value));
 
-            // Inject a matching text-color control right after each field's
-            // position box (built here instead of hand-duplicated per field in HTML).
+            // Inject matching text-color and typography controls right after
+            // each field's position box (built here instead of hand-duplicated
+            // per field in HTML). Typography goes first so color sits directly
+            // below the position box, matching the original layout order.
+            const typoRow = buildFieldTypographyControl(fieldId);
+            el.parentNode.insertBefore(typoRow, el.nextSibling);
             const colorRow = buildFieldColorControl(fieldId);
-            el.parentNode.insertBefore(colorRow, el.nextSibling);
+            el.parentNode.insertBefore(colorRow, typoRow.nextSibling);
         });
 
         // Template-level custom text/logo elements: add buttons
@@ -1440,10 +1567,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const family = fieldCfg.font.family;
         const weight = fieldCfg.font.weight || 400;
+        const italic = fieldCfg.font.italic ? 'italic ' : '';
         let sizePx = Math.round(fieldCfg.font.sizeFrac * CARD_HEIGHT);
         ctx.textAlign = fieldCfg.align.h;
         ctx.textBaseline = fieldCfg.align.v;
-        ctx.font = `${weight} ${sizePx}px ${family}`;
+        ctx.font = `${italic}${weight} ${sizePx}px ${family}`;
 
         const x = fieldCfg.position.x * CARD_WIDTH;
         const y = fieldCfg.position.y * CARD_HEIGHT;
@@ -1461,7 +1589,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const minSizePx = (fieldCfg.minSizeFrac || fieldCfg.font.sizeFrac) * CARD_HEIGHT;
             while (ctx.measureText(text).width > maxWidthPx && sizePx > minSizePx) {
                 sizePx -= 1;
-                ctx.font = `${weight} ${sizePx}px ${family}`;
+                ctx.font = `${italic}${weight} ${sizePx}px ${family}`;
             }
         }
 
