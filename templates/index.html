@@ -19,7 +19,7 @@
             <div class="logo-icon">🏐</div>
             <div>
                 <h1>排球員身分證生成器</h1>
-                <p class="subtitle">標準實體紙卡尺寸：<strong>79.7 mm × 48 mm</strong> (300 DPI 超高畫質)</p>
+                <p class="subtitle">標準實體紙卡尺寸：<strong><span class="physical-size-text">79.7 × 48 mm</span></strong> (300 DPI 超高畫質)</p>
             </div>
         </div>
 
@@ -32,7 +32,7 @@
                 <span class="btn-icon">📱</span> 生成 QR Code
             </button>
             <button id="btnDownloadTop" class="btn btn-primary">
-                <span class="btn-icon">💾</span> 下載圖檔 (79.7×48mm)
+                <span class="btn-icon">💾</span> 下載圖檔 (<span class="physical-size-text">79.7 × 48 mm</span>)
             </button>
         </div>
     </div>
@@ -64,6 +64,67 @@
                     ⬆️ 匯入版面設定備份
                 </button>
                 <input type="file" id="layoutImportInput" accept="application/json,.json" style="display:none;">
+            </div>
+
+            <!-- 總畫布尺寸（含出血）：依印刷廠商規格設定 mm / px / 比例，套用後以最小程度縮放模板校正比例，確保輸出 DPI 正確 -->
+            <div class="card-shape-settings">
+                <div class="card-shape-header">
+                    <strong>📐 總畫布尺寸（廠商規格微調）</strong>
+                </div>
+                <p class="hint-text" id="cardShapeCurrentInfo">目前畫布：計算中...</p>
+                <p class="hint-text">此為完整輸出畫布（可能含出血）。依印刷廠商提供的規格輸入下列任一種單位並按「套用」，系統會以最小程度縮放模板來符合該寬高比例，確保輸出 DPI 正確。寬與高各自獨立輸入，不會互相鎖定換算。</p>
+
+                <div class="shape-input-row">
+                    <span class="shape-unit-label">毫米 mm</span>
+                    <label>寬 <input type="number" id="shapeMmWidth" min="1" step="0.1"></label>
+                    <label>高 <input type="number" id="shapeMmHeight" min="1" step="0.1"></label>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnApplyShapeMm">套用</button>
+                </div>
+                <div class="shape-input-row">
+                    <span class="shape-unit-label">像素 px</span>
+                    <label>寬 <input type="number" id="shapePxWidth" min="50" step="1"></label>
+                    <label>高 <input type="number" id="shapePxHeight" min="50" step="1"></label>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnApplyShapePx">套用</button>
+                </div>
+                <div class="shape-input-row">
+                    <span class="shape-unit-label">比例</span>
+                    <label>寬 <input type="number" id="shapeRatioWidth" min="0.01" step="0.01"></label>
+                    <label>: 高 <input type="number" id="shapeRatioHeight" min="0.01" step="0.01"></label>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnApplyShapeRatio">套用</button>
+                </div>
+
+                <div class="shape-actions-row">
+                    <button type="button" class="btn btn-sm btn-outline" id="btnResetShape">↩️ 還原為模板原始比例</button>
+                </div>
+            </div>
+
+            <!-- 刀板尺寸（實際卡片大小）：僅作預覽參考框，置中顯示在總畫布上，不會被輸出到下載圖檔 -->
+            <div class="card-shape-settings trim-guide-settings">
+                <div class="card-shape-header">
+                    <strong>✂️ 刀板尺寸（實際卡片大小）</strong>
+                    <label class="checkbox-label"><input type="checkbox" id="trimGuideEnabled"> 顯示刀板參考框</label>
+                </div>
+                <p class="hint-text" id="trimGuideCurrentInfo">尚未設定刀板尺寸</p>
+                <p class="hint-text">刀板代表印刷廠實際裁切卡片的範圍，會置中顯示於總畫布上僅供排版參考，「不會」被儲存進輸出的圖檔。寬與高各自獨立輸入，不會互相鎖定換算。</p>
+
+                <div class="shape-input-row">
+                    <span class="shape-unit-label">毫米 mm</span>
+                    <label>寬 <input type="number" id="trimMmWidth" min="1" step="0.1"></label>
+                    <label>高 <input type="number" id="trimMmHeight" min="1" step="0.1"></label>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnApplyTrimMm">套用</button>
+                </div>
+                <div class="shape-input-row">
+                    <span class="shape-unit-label">像素 px</span>
+                    <label>寬 <input type="number" id="trimPxWidth" min="10" step="1"></label>
+                    <label>高 <input type="number" id="trimPxHeight" min="10" step="1"></label>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnApplyTrimPx">套用</button>
+                </div>
+                <div class="shape-input-row">
+                    <span class="shape-unit-label">比例</span>
+                    <label>寬 <input type="number" id="trimRatioWidth" min="0.01" step="0.01"></label>
+                    <label>: 高 <input type="number" id="trimRatioHeight" min="0.01" step="0.01"></label>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnApplyTrimRatio">套用</button>
+                </div>
             </div>
 
             <div class="form-tabs">
@@ -437,6 +498,25 @@
                 </div>
             </div>
 
+            <!-- 輸出圖片大小設定：部分印刷廠商無法接受過大解析度的原始檔 -->
+            <div class="export-settings">
+                <div class="form-group">
+                    <label for="exportSizePreset">🖨️ 輸出圖片大小 / 解析度</label>
+                    <select id="exportSizePreset">
+                        <option value="original">原始最高畫質（依模板解析度）</option>
+                        <option value="600">600 DPI（超高精緻印刷）</option>
+                        <option value="300" selected>300 DPI（印刷標準・建議，多數廠商可接受）</option>
+                        <option value="150">150 DPI（檔案較小，一般印刷/影印可接受）</option>
+                        <option value="custom">自訂寬度 (px)</option>
+                    </select>
+                </div>
+                <div class="form-group" id="exportCustomWidthGroup" style="display:none;">
+                    <label for="exportCustomWidth">自訂輸出寬度 (px，高度依比例自動計算)</label>
+                    <input type="number" id="exportCustomWidth" min="200" step="1" placeholder="例: 1000">
+                </div>
+                <p class="hint-text" id="exportSizeInfo">輸出尺寸：計算中...</p>
+            </div>
+
             <!-- 控制區底部主要動作鈕 -->
             <div class="panel-actions">
                 <button id="btnQR" class="btn btn-accent btn-block">
@@ -446,7 +526,7 @@
                     <span class="btn-icon">🔄</span> 重新製作 (載入範例)
                 </button>
                 <button id="btnDownload" class="btn btn-primary btn-block btn-lg">
-                    <span class="btn-icon">💾</span> 下載圖檔 (79.7 × 48 mm)
+                    <span class="btn-icon">💾</span> 下載圖檔 (<span class="physical-size-text">79.7 × 48 mm</span>)
                 </button>
             </div>
         </section>
@@ -456,18 +536,21 @@
             <div class="preview-header">
                 <div class="preview-title">
                     <h3>📷 身分證即時預覽 (Live Card Preview)</h3>
-                    <p>實體尺寸標籤：79.7 mm × 48 mm | 300 DPI 超高清輸出</p>
+                    <p>實體尺寸標籤：<span class="physical-size-text">79.7 × 48 mm</span> | 300 DPI 超高清輸出</p>
+                    <p class="trim-guide-caption" id="trimGuideCaption" style="display:none;">✂️ 虛線框內為刀板（實際卡片大小），框外為出血區，僅供預覽參考、不會輸出到圖檔</p>
                 </div>
                 <div class="card-dimensions-info">
                     <span>模板底圖套版輸出</span>
-                    <span class="dim-badge">2688 × 1598 px</span>
+                    <span class="dim-badge" id="dimBadge">2688 × 1598 px</span>
                 </div>
             </div>
 
-            <div class="canvas-wrapper">
+            <div class="canvas-wrapper" id="canvasWrapper">
                 <!-- HTML5 繪圖 Canvas (實際尺寸由 static/config/card_layout.json 決定) -->
                 <canvas id="cardCanvas" width="2688" height="1598"></canvas>
                 <div class="card-glare"></div>
+                <!-- 刀板參考框：純畫面疊層，不屬於 canvas 像素內容，下載/匯出時不會被包含進去 -->
+                <div class="trim-guide-overlay" id="trimGuideOverlay" style="display:none;"></div>
             </div>
 
             <!-- 快速輔助功能 -->
@@ -479,15 +562,15 @@
                     <span>📋 複製圖片至剪貼簿</span>
                 </button>
                 <button id="btnPrintHelp" class="btn btn-outline">
-                    <span>🖨️ 實體列印指南 (79.7×48mm)</span>
+                    <span>🖨️ 實體列印指南 (<span class="physical-size-text">79.7 × 48 mm</span>)</span>
                 </button>
             </div>
 
             <!-- 列印說明 -->
             <div class="print-guide" id="printGuide" style="display: none;">
-                <h4>🖨️ 79.7 mm × 48 mm 實體卡片列印建議：</h4>
+                <h4>🖨️ <span class="physical-size-text">79.7 × 48 mm</span> 實體卡片列印建議：</h4>
                 <ul>
-                    <li><strong>圖片解析度：</strong>本系統下載之圖檔為 2688 × 1598 px（依模板底圖原始尺寸輸出），已達 300 DPI 印刷等級解析度。</li>
+                    <li><strong>圖片解析度：</strong><span id="printGuideResInfo">本系統下載之圖檔為 2688 × 1598 px（依模板底圖原始尺寸輸出），已達 300 DPI 印刷等級解析度。</span></li>
                     <li><strong>列印設定：</strong>列印時請選擇「實際大小 (Actual Size / 100%)」，切勿選擇「適合頁面大小 (Fit to Page)」。</li>
                     <li><strong>紙張推薦：</strong>建議使用 250g~300g 磅數之相片紙、亮面卡紙或 PVC 身分證空白卡套進行列印。</li>
                 </ul>

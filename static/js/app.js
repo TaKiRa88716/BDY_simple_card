@@ -15,12 +15,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const CONFIG_URL = '/static/config/card_layout.json';
 
+    // Physical card size. Defaults to the documented 79.7×48mm spec but is
+    // user-editable (see Card Shape Correction below) since different print
+    // vendors cut to slightly different physical dimensions. Height is kept
+    // in sync with the *actual* canvas pixel ratio (not typed in directly
+    // except via the mm input) so DPI stays uniform on both axes.
+    let PHYSICAL_WIDTH_MM = 79.7;
+    let PHYSICAL_HEIGHT_MM = 48;
+
+    // The uploaded template image's true, undistorted pixel dimensions —
+    // the reference point every "minimal scaling" ratio correction measures
+    // from, so repeated corrections never compound distortion.
+    let NATIVE_TEMPLATE_WIDTH = 0;
+    let NATIVE_TEMPLATE_HEIGHT = 0;
+
     // Populated once the config JSON has loaded. Canvas size mirrors the
-    // template image's native pixel size (config.canvasWidth/Height).
+    // template image's native pixel size (config.canvasWidth/Height) unless
+    // the user has applied a card-shape correction (see below).
     let LAYOUT = null;
     let CARD_WIDTH = 0;
     let CARD_HEIGHT = 0;
     let templateImg = null;
+
+    // Trim guide (刀板): the actual post-cut card size, shown centered over
+    // the (possibly larger, bleed-inclusive) canvas as a pure visual guide.
+    // Stored/restored via LAYOUT.trimGuide but never drawn onto the canvas
+    // itself, so it's structurally impossible for it to leak into an export.
+    let TRIM_WIDTH_PX = 0;
+    let TRIM_HEIGHT_PX = 0;
+    let TRIM_ENABLED = false;
+
+    // Trims a mm value to 2 decimals without trailing zeros (79.70 -> "79.7").
+    function fmtMm(v) {
+        return Number((v || 0).toFixed(2)).toString();
+    }
 
     // Default Sample Data
     const DEFAULT_DATA = {
@@ -167,7 +195,30 @@ document.addEventListener('DOMContentLoaded', () => {
         CARD_HEIGHT = config.canvasHeight;
         canvas.width = CARD_WIDTH;
         canvas.height = CARD_HEIGHT;
+        // The real image file's intrinsic pixel size — independent of whatever
+        // canvasWidth/Height a prior shape-correction may have saved — is the
+        // true "undistorted" baseline for future minimal-scale corrections.
+        NATIVE_TEMPLATE_WIDTH = img.naturalWidth || img.width;
+        NATIVE_TEMPLATE_HEIGHT = img.naturalHeight || img.height;
+        // Restore a previously-saved physical size / trim guide, if any,
+        // so a shape correction survives a page reload correctly.
+        if (config.physicalWidthMm) PHYSICAL_WIDTH_MM = config.physicalWidthMm;
+        if (config.physicalHeightMm) PHYSICAL_HEIGHT_MM = config.physicalHeightMm;
+        if (config.trimGuide) {
+            TRIM_WIDTH_PX = config.trimGuide.widthPx || 0;
+            TRIM_HEIGHT_PX = config.trimGuide.heightPx || 0;
+            TRIM_ENABLED = !!config.trimGuide.enabled;
+            const trimToggle = document.getElementById('trimGuideEnabled');
+            if (trimToggle) trimToggle.checked = TRIM_ENABLED;
+        }
         resolveAutoBorderColorIfNeeded();
+        if (exportCustomWidthInput) exportCustomWidthInput.max = CARD_WIDTH;
+        updateExportSizeInfo();
+        updateCardShapeCurrentInfo();
+        updatePhysicalSizeLabels();
+        syncCanvasWrapperAspect();
+        updateTrimGuideCurrentInfo();
+        updateTrimGuideOverlay();
     }
 
     async function reloadTemplateImageOnly() {
@@ -181,6 +232,8 @@ document.addEventListener('DOMContentLoaded', () => {
             im.src = `${LAYOUT.templateImage}?${cacheBust}`;
         });
         templateImg = img;
+        NATIVE_TEMPLATE_WIDTH = img.naturalWidth || img.width;
+        NATIVE_TEMPLATE_HEIGHT = img.naturalHeight || img.height;
         resolveAutoBorderColorIfNeeded();
     }
 
@@ -458,6 +511,19 @@ document.addEventListener('DOMContentLoaded', () => {
                         CARD_HEIGHT = data.height;
                         canvas.width = CARD_WIDTH;
                         canvas.height = CARD_HEIGHT;
+                        // A freshly uploaded template is undistorted by definition — keep
+                        // the user's chosen physical width but re-derive height from its
+                        // (new) native pixel ratio so DPI stays correct.
+                        PHYSICAL_HEIGHT_MM = PHYSICAL_WIDTH_MM * (CARD_HEIGHT / CARD_WIDTH);
+                        LAYOUT.physicalWidthMm = PHYSICAL_WIDTH_MM;
+                        LAYOUT.physicalHeightMm = PHYSICAL_HEIGHT_MM;
+                        if (exportCustomWidthInput) exportCustomWidthInput.max = CARD_WIDTH;
+                        updateExportSizeInfo();
+                        updateCardShapeCurrentInfo();
+                        updatePhysicalSizeLabels();
+                        syncCanvasWrapperAspect();
+                        updateTrimGuideCurrentInfo();
+                        updateTrimGuideOverlay();
                         await reloadTemplateImageOnly();
                         syncLayoutControlsFromLAYOUT();
                         renderCard();
@@ -749,11 +815,423 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
+    // Card Shape Correction
+    // Different print vendors cut cards to slightly different physical
+    // dimensions. The template's native pixel ratio rarely matches a given
+    // vendor's spec exactly, which throws off X/Y DPI once printed. This
+    // lets the user specify the target size in mm, px, or a bare ratio
+    // (each field independent — no auto-locking between width and height)
+    // and reshapes the working canvas by the *smallest* possible distortion
+    // needed to hit that ratio, always measured from the template's true,
+    // undistorted native pixel size (NATIVE_TEMPLATE_WIDTH/HEIGHT) so
+    // repeated corrections never compound.
+    // ==========================================
+
+    // Splits the ratio correction evenly across both axes (scaleX * scaleY
+    // == 1, i.e. total pixel area is preserved) rather than dumping all the
+    // distortion onto a single axis — the smallest change that still hits
+    // the target ratio exactly.
+    function computeMinimalReshapeForRatio(targetRatio) {
+        const R0 = NATIVE_TEMPLATE_WIDTH / NATIVE_TEMPLATE_HEIGHT;
+        const k = targetRatio / R0;
+        const scaleX = Math.sqrt(k);
+        const scaleY = 1 / scaleX;
+        const w = Math.max(50, Math.round(NATIVE_TEMPLATE_WIDTH * scaleX));
+        const h = Math.max(50, Math.round(NATIVE_TEMPLATE_HEIGHT * scaleY));
+        return { w, h };
+    }
+
+    // Applies a new working canvas size. The template image is redrawn
+    // stretched to fit (renderCard()'s drawImage call already targets
+    // CARD_WIDTH/CARD_HEIGHT regardless of the source image's own pixel
+    // size, so no extra offscreen resampling step is needed here).
+    function applyCardShape(newW, newH, physicalWidthMm) {
+        if (!newW || !newH || newW < 50 || newH < 50) {
+            alert('請輸入有效的寬度與高度數值（至少 50）。');
+            return false;
+        }
+        CARD_WIDTH = Math.round(newW);
+        CARD_HEIGHT = Math.round(newH);
+        canvas.width = CARD_WIDTH;
+        canvas.height = CARD_HEIGHT;
+        if (LAYOUT) {
+            LAYOUT.canvasWidth = CARD_WIDTH;
+            LAYOUT.canvasHeight = CARD_HEIGHT;
+        }
+        if (physicalWidthMm) PHYSICAL_WIDTH_MM = physicalWidthMm;
+        // Re-derive height-mm from the actual achieved pixel ratio (not the
+        // pre-rounding target) so DPI comes out uniform on both axes.
+        PHYSICAL_HEIGHT_MM = PHYSICAL_WIDTH_MM * (CARD_HEIGHT / CARD_WIDTH);
+        if (LAYOUT) {
+            LAYOUT.physicalWidthMm = PHYSICAL_WIDTH_MM;
+            LAYOUT.physicalHeightMm = PHYSICAL_HEIGHT_MM;
+        }
+        if (exportCustomWidthInput) exportCustomWidthInput.max = CARD_WIDTH;
+        updateExportSizeInfo();
+        updateCardShapeCurrentInfo();
+        updatePhysicalSizeLabels();
+        syncCanvasWrapperAspect();
+        updateTrimGuideCurrentInfo();
+        updateTrimGuideOverlay();
+        renderCard();
+        return true;
+    }
+
+    function updateCardShapeCurrentInfo() {
+        const el = document.getElementById('cardShapeCurrentInfo');
+        if (el && CARD_WIDTH && CARD_HEIGHT) {
+            const ratio = (CARD_WIDTH / CARD_HEIGHT).toFixed(3);
+            el.innerText = `目前畫布：${CARD_WIDTH} × ${CARD_HEIGHT} px（比例 ${ratio}）｜ 對應實體尺寸：${fmtMm(PHYSICAL_WIDTH_MM)} × ${fmtMm(PHYSICAL_HEIGHT_MM)} mm ｜ 模板原始像素：${NATIVE_TEMPLATE_WIDTH} × ${NATIVE_TEMPLATE_HEIGHT} px`;
+        }
+        // Keep all three unit groups showing the same size — whichever one
+        // was just used to apply a change, the other two get filled in with
+        // the equivalent values so they never look stale/inconsistent.
+        const mmWEl = document.getElementById('shapeMmWidth');
+        const mmHEl = document.getElementById('shapeMmHeight');
+        const pxWEl = document.getElementById('shapePxWidth');
+        const pxHEl = document.getElementById('shapePxHeight');
+        const rWEl = document.getElementById('shapeRatioWidth');
+        const rHEl = document.getElementById('shapeRatioHeight');
+        if (mmWEl) mmWEl.value = fmtMm(PHYSICAL_WIDTH_MM);
+        if (mmHEl) mmHEl.value = fmtMm(PHYSICAL_HEIGHT_MM);
+        if (pxWEl) pxWEl.value = CARD_WIDTH || '';
+        if (pxHEl) pxHEl.value = CARD_HEIGHT || '';
+        if (rWEl) rWEl.value = CARD_WIDTH || '';
+        if (rHEl) rHEl.value = CARD_HEIGHT || '';
+    }
+
+    // Refreshes every "79.7 × 48 mm" style label throughout the page
+    // (header, download buttons, preview panel, print guide) to reflect
+    // whatever physical size is currently in effect.
+    function updatePhysicalSizeLabels() {
+        const text = `${fmtMm(PHYSICAL_WIDTH_MM)} × ${fmtMm(PHYSICAL_HEIGHT_MM)} mm`;
+        document.querySelectorAll('.physical-size-text').forEach(el => { el.textContent = text; });
+
+        const dimBadge = document.getElementById('dimBadge');
+        if (dimBadge && CARD_WIDTH && CARD_HEIGHT) dimBadge.textContent = `${CARD_WIDTH} × ${CARD_HEIGHT} px`;
+
+        const printInfo = document.getElementById('printGuideResInfo');
+        if (printInfo && CARD_WIDTH && CARD_HEIGHT) {
+            const nativeDpi = Math.round(CARD_WIDTH / (PHYSICAL_WIDTH_MM / 25.4));
+            printInfo.textContent = `本系統下載之圖檔預設為 ${CARD_WIDTH} × ${CARD_HEIGHT} px（依目前模板畫布尺寸輸出），約 ${nativeDpi} DPI 印刷等級解析度；實際下載解析度依上方「輸出圖片大小 / 解析度」設定而定。`;
+        }
+    }
+
+    function initCardShapeControls() {
+        const mmW = document.getElementById('shapeMmWidth');
+        const mmH = document.getElementById('shapeMmHeight');
+        const pxW = document.getElementById('shapePxWidth');
+        const pxH = document.getElementById('shapePxHeight');
+        const ratioW = document.getElementById('shapeRatioWidth');
+        const ratioH = document.getElementById('shapeRatioHeight');
+        const btnMm = document.getElementById('btnApplyShapeMm');
+        const btnPx = document.getElementById('btnApplyShapePx');
+        const btnRatio = document.getElementById('btnApplyShapeRatio');
+        const btnReset = document.getElementById('btnResetShape');
+
+        if (btnMm) {
+            btnMm.addEventListener('click', () => {
+                const w = parseFloat(mmW && mmW.value);
+                const h = parseFloat(mmH && mmH.value);
+                if (!w || !h || w <= 0 || h <= 0) { alert('請輸入有效的毫米寬度與高度。'); return; }
+                const { w: newW, h: newH } = computeMinimalReshapeForRatio(w / h);
+                if (applyCardShape(newW, newH, w)) {
+                    alert(`✅ 已依 ${fmtMm(w)} × ${fmtMm(h)} mm 的比例校正模板（畫布已縮放為 ${newW} × ${newH} px）。\n記得點上方「💾 儲存目前版面設定」才會永久保留此設定。`);
+                }
+            });
+        }
+
+        if (btnPx) {
+            btnPx.addEventListener('click', () => {
+                const w = parseInt(pxW && pxW.value, 10);
+                const h = parseInt(pxH && pxH.value, 10);
+                if (!w || !h) { alert('請輸入有效的像素寬度與高度。'); return; }
+                if (applyCardShape(w, h, null)) {
+                    alert(`✅ 已將畫布設定為 ${w} × ${h} px。\n記得點上方「💾 儲存目前版面設定」才會永久保留此設定。`);
+                }
+            });
+        }
+
+        if (btnRatio) {
+            btnRatio.addEventListener('click', () => {
+                const rw = parseFloat(ratioW && ratioW.value);
+                const rh = parseFloat(ratioH && ratioH.value);
+                if (!rw || !rh || rw <= 0 || rh <= 0) { alert('請輸入有效的比例數值。'); return; }
+                const { w: newW, h: newH } = computeMinimalReshapeForRatio(rw / rh);
+                if (applyCardShape(newW, newH, null)) {
+                    alert(`✅ 已依 ${rw} : ${rh} 比例校正模板（畫布已縮放為 ${newW} × ${newH} px）。\n記得點上方「💾 儲存目前版面設定」才會永久保留此設定。`);
+                }
+            });
+        }
+
+        if (btnReset) {
+            btnReset.addEventListener('click', () => {
+                if (!NATIVE_TEMPLATE_WIDTH || !NATIVE_TEMPLATE_HEIGHT) return;
+                applyCardShape(NATIVE_TEMPLATE_WIDTH, NATIVE_TEMPLATE_HEIGHT, 79.7);
+                alert(`✅ 已還原為模板原始比例（${NATIVE_TEMPLATE_WIDTH} × ${NATIVE_TEMPLATE_HEIGHT} px）。\n記得點上方「💾 儲存目前版面設定」才會永久保留此設定。`);
+            });
+        }
+    }
+
+    // Keeps the on-screen canvas wrapper's aspect ratio pixel-perfect with
+    // the actual canvas, so #cardCanvas (object-fit: contain) never
+    // letterboxes — required for the trim guide overlay's percentage-based
+    // positioning below to line up exactly with the rendered card.
+    function syncCanvasWrapperAspect() {
+        const wrapper = document.getElementById('canvasWrapper');
+        if (wrapper && CARD_WIDTH && CARD_HEIGHT) {
+            wrapper.style.aspectRatio = `${CARD_WIDTH} / ${CARD_HEIGHT}`;
+        }
+    }
+
+    // ==========================================
+    // Trim Guide (刀板 / 出血參考框)
+    // Purely a visual reference for where the vendor will actually cut the
+    // card, centered over the total (bleed-inclusive) canvas set above. It
+    // is a plain absolutely-positioned <div> layered on top of the canvas
+    // in the DOM — never drawn into the canvas's own pixels — so it is
+    // structurally impossible for it to end up in any exported/downloaded
+    // image, no matter which export path is used.
+    // ==========================================
+
+    function updateTrimGuideOverlay() {
+        const overlay = document.getElementById('trimGuideOverlay');
+        const caption = document.getElementById('trimGuideCaption');
+        if (!overlay) return;
+        const active = TRIM_ENABLED && TRIM_WIDTH_PX && TRIM_HEIGHT_PX && CARD_WIDTH && CARD_HEIGHT;
+        if (!active) {
+            overlay.style.display = 'none';
+            if (caption) caption.style.display = 'none';
+            return;
+        }
+        const w = Math.min(TRIM_WIDTH_PX, CARD_WIDTH);
+        const h = Math.min(TRIM_HEIGHT_PX, CARD_HEIGHT);
+        overlay.style.left = `${((CARD_WIDTH - w) / 2 / CARD_WIDTH) * 100}%`;
+        overlay.style.top = `${((CARD_HEIGHT - h) / 2 / CARD_HEIGHT) * 100}%`;
+        overlay.style.width = `${(w / CARD_WIDTH) * 100}%`;
+        overlay.style.height = `${(h / CARD_HEIGHT) * 100}%`;
+        overlay.style.display = 'block';
+        if (caption) caption.style.display = 'block';
+    }
+
+    function updateTrimGuideCurrentInfo() {
+        const el = document.getElementById('trimGuideCurrentInfo');
+        if (el) {
+            if (!TRIM_WIDTH_PX || !TRIM_HEIGHT_PX) {
+                el.innerText = '尚未設定刀板尺寸（設定後會置中顯示於畫布，做為排版參考）';
+            } else {
+                const bleedXpx = CARD_WIDTH - TRIM_WIDTH_PX;
+                const bleedYpx = CARD_HEIGHT - TRIM_HEIGHT_PX;
+                const bleedXmm = CARD_WIDTH ? (bleedXpx / 2) * (PHYSICAL_WIDTH_MM / CARD_WIDTH) : 0;
+                const bleedYmm = CARD_HEIGHT ? (bleedYpx / 2) * (PHYSICAL_HEIGHT_MM / CARD_HEIGHT) : 0;
+                const warn = (TRIM_WIDTH_PX > CARD_WIDTH || TRIM_HEIGHT_PX > CARD_HEIGHT)
+                    ? ' ⚠️ 刀板大於總畫布，已限制在畫布範圍內顯示'
+                    : '';
+                el.innerText = `目前刀板：${TRIM_WIDTH_PX} × ${TRIM_HEIGHT_PX} px ｜ 四周出血約：左右 ${fmtMm(bleedXmm)} mm、上下 ${fmtMm(bleedYmm)} mm${warn}`;
+            }
+        }
+        // Same as the total-canvas group above: whichever unit was just used
+        // to apply the trim size, fill the other two groups with the
+        // equivalent values so all three always agree.
+        const mmWEl = document.getElementById('trimMmWidth');
+        const mmHEl = document.getElementById('trimMmHeight');
+        const pxWEl = document.getElementById('trimPxWidth');
+        const pxHEl = document.getElementById('trimPxHeight');
+        const rWEl = document.getElementById('trimRatioWidth');
+        const rHEl = document.getElementById('trimRatioHeight');
+        const trimMmW = TRIM_WIDTH_PX && PHYSICAL_WIDTH_MM && CARD_WIDTH ? fmtMm(TRIM_WIDTH_PX * (PHYSICAL_WIDTH_MM / CARD_WIDTH)) : '';
+        const trimMmH = TRIM_HEIGHT_PX && PHYSICAL_HEIGHT_MM && CARD_HEIGHT ? fmtMm(TRIM_HEIGHT_PX * (PHYSICAL_HEIGHT_MM / CARD_HEIGHT)) : '';
+        if (mmWEl) mmWEl.value = trimMmW;
+        if (mmHEl) mmHEl.value = trimMmH;
+        if (pxWEl) pxWEl.value = TRIM_WIDTH_PX || '';
+        if (pxHEl) pxHEl.value = TRIM_HEIGHT_PX || '';
+        if (rWEl) rWEl.value = TRIM_WIDTH_PX || '';
+        if (rHEl) rHEl.value = TRIM_HEIGHT_PX || '';
+    }
+
+    // Sets the trim size (in px) and turns the guide on; shared by all three
+    // apply paths below since they only differ in how they arrive at a px
+    // width/height.
+    function applyTrimGuide(pxW, pxH) {
+        if (!pxW || !pxH || pxW < 10 || pxH < 10) {
+            alert('請輸入有效的刀板寬度與高度數值（至少 10）。');
+            return false;
+        }
+        TRIM_WIDTH_PX = Math.round(pxW);
+        TRIM_HEIGHT_PX = Math.round(pxH);
+        TRIM_ENABLED = true;
+        const toggle = document.getElementById('trimGuideEnabled');
+        if (toggle) toggle.checked = true;
+        if (LAYOUT) {
+            LAYOUT.trimGuide = { enabled: TRIM_ENABLED, widthPx: TRIM_WIDTH_PX, heightPx: TRIM_HEIGHT_PX };
+        }
+        updateTrimGuideCurrentInfo();
+        updateTrimGuideOverlay();
+        return true;
+    }
+
+    function initTrimGuideControls() {
+        const mmW = document.getElementById('trimMmWidth');
+        const mmH = document.getElementById('trimMmHeight');
+        const pxW = document.getElementById('trimPxWidth');
+        const pxH = document.getElementById('trimPxHeight');
+        const ratioW = document.getElementById('trimRatioWidth');
+        const ratioH = document.getElementById('trimRatioHeight');
+        const btnMm = document.getElementById('btnApplyTrimMm');
+        const btnPx = document.getElementById('btnApplyTrimPx');
+        const btnRatio = document.getElementById('btnApplyTrimRatio');
+        const toggle = document.getElementById('trimGuideEnabled');
+
+        if (btnMm) {
+            btnMm.addEventListener('click', () => {
+                const w = parseFloat(mmW && mmW.value);
+                const h = parseFloat(mmH && mmH.value);
+                if (!w || !h || w <= 0 || h <= 0) { alert('請輸入有效的毫米寬度與高度。'); return; }
+                if (!CARD_WIDTH || !CARD_HEIGHT || !PHYSICAL_WIDTH_MM || !PHYSICAL_HEIGHT_MM) {
+                    alert('請先在上方設定好「總畫布尺寸」。');
+                    return;
+                }
+                const pxW = w * (CARD_WIDTH / PHYSICAL_WIDTH_MM);
+                const pxH = h * (CARD_HEIGHT / PHYSICAL_HEIGHT_MM);
+                if (applyTrimGuide(pxW, pxH)) {
+                    alert(`✅ 已設定刀板為 ${fmtMm(w)} × ${fmtMm(h)} mm，置中顯示於畫布（僅供預覽參考，不會輸出到圖檔）。`);
+                }
+            });
+        }
+
+        if (btnPx) {
+            btnPx.addEventListener('click', () => {
+                const w = parseInt(pxW && pxW.value, 10);
+                const h = parseInt(pxH && pxH.value, 10);
+                if (!w || !h) { alert('請輸入有效的像素寬度與高度。'); return; }
+                if (applyTrimGuide(w, h)) {
+                    alert(`✅ 已設定刀板為 ${w} × ${h} px，置中顯示於畫布（僅供預覽參考，不會輸出到圖檔）。`);
+                }
+            });
+        }
+
+        if (btnRatio) {
+            btnRatio.addEventListener('click', () => {
+                const rw = parseFloat(ratioW && ratioW.value);
+                const rh = parseFloat(ratioH && ratioH.value);
+                if (!rw || !rh || rw <= 0 || rh <= 0) { alert('請輸入有效的比例數值。'); return; }
+                if (!CARD_WIDTH || !CARD_HEIGHT) return;
+                // No absolute size is implied by a bare ratio, so default to
+                // the largest centered box at that ratio that still fits
+                // fully inside the current canvas.
+                const canvasRatio = CARD_WIDTH / CARD_HEIGHT;
+                const targetRatio = rw / rh;
+                let w, h;
+                if (targetRatio > canvasRatio) {
+                    w = CARD_WIDTH;
+                    h = w / targetRatio;
+                } else {
+                    h = CARD_HEIGHT;
+                    w = h * targetRatio;
+                }
+                if (applyTrimGuide(w, h)) {
+                    alert(`✅ 已依 ${rw} : ${rh} 比例設定刀板，置中顯示於畫布（僅供預覽參考，不會輸出到圖檔）。`);
+                }
+            });
+        }
+
+        if (toggle) {
+            toggle.addEventListener('change', () => {
+                TRIM_ENABLED = toggle.checked;
+                if (LAYOUT) {
+                    LAYOUT.trimGuide = { enabled: TRIM_ENABLED, widthPx: TRIM_WIDTH_PX, heightPx: TRIM_HEIGHT_PX };
+                }
+                updateTrimGuideOverlay();
+            });
+        }
+    }
+
+    // ==========================================
+    // Export Size Controls
+    // Lets the user cap the exported PNG's resolution (via a DPI preset or a
+    // custom pixel width) instead of always exporting at the template's full
+    // native resolution — some print vendors reject files that are "too big".
+    // Every export path (download, batch save, QR, clipboard copy) reads
+    // through getExportCanvas() so the setting applies everywhere uniformly.
+    // ==========================================
+
+    const exportSizePreset = document.getElementById('exportSizePreset');
+    const exportCustomWidthGroup = document.getElementById('exportCustomWidthGroup');
+    const exportCustomWidthInput = document.getElementById('exportCustomWidth');
+    const exportSizeInfo = document.getElementById('exportSizeInfo');
+
+    function computeExportDimensions() {
+        if (!CARD_WIDTH || !CARD_HEIGHT) return { w: CARD_WIDTH, h: CARD_HEIGHT };
+        const mode = exportSizePreset ? exportSizePreset.value : 'original';
+
+        if (mode === 'original') {
+            return { w: CARD_WIDTH, h: CARD_HEIGHT };
+        }
+
+        if (mode === 'custom') {
+            let w = parseInt(exportCustomWidthInput && exportCustomWidthInput.value, 10);
+            if (!w || w <= 0) w = CARD_WIDTH;
+            w = Math.min(w, CARD_WIDTH); // never upscale past the template's native pixels
+            const h = Math.max(1, Math.round(w * (CARD_HEIGHT / CARD_WIDTH)));
+            return { w, h };
+        }
+
+        // DPI preset: scale the whole canvas so its width matches the target
+        // DPI at the card's physical width, keeping the native aspect ratio.
+        const targetDpi = parseInt(mode, 10);
+        const nativeDpi = CARD_WIDTH / (PHYSICAL_WIDTH_MM / 25.4);
+        const scale = Math.min(targetDpi / nativeDpi, 1); // never upscale
+        const w = Math.max(1, Math.round(CARD_WIDTH * scale));
+        const h = Math.max(1, Math.round(CARD_HEIGHT * scale));
+        return { w, h };
+    }
+
+    // Returns the canvas to actually export from: the live preview canvas
+    // itself when no downscale is needed, or a freshly-drawn offscreen
+    // canvas at the computed export size otherwise.
+    function getExportCanvas() {
+        const { w, h } = computeExportDimensions();
+        if (!w || !h || (w === CARD_WIDTH && h === CARD_HEIGHT)) return canvas;
+        const off = document.createElement('canvas');
+        off.width = w;
+        off.height = h;
+        const octx = off.getContext('2d');
+        octx.imageSmoothingEnabled = true;
+        octx.imageSmoothingQuality = 'high';
+        octx.drawImage(canvas, 0, 0, w, h);
+        return off;
+    }
+
+    function updateExportSizeInfo() {
+        if (!exportSizeInfo || !CARD_WIDTH) return;
+        const { w, h } = computeExportDimensions();
+        const approxDpi = Math.round(w / (PHYSICAL_WIDTH_MM / 25.4));
+        exportSizeInfo.innerText = `輸出尺寸：${w} × ${h} px（約 ${approxDpi} DPI）`;
+    }
+
+    function initExportSizeControls() {
+        if (exportSizePreset) {
+            exportSizePreset.addEventListener('change', () => {
+                if (exportCustomWidthGroup) {
+                    exportCustomWidthGroup.style.display = exportSizePreset.value === 'custom' ? 'flex' : 'none';
+                }
+                if (exportSizePreset.value === 'custom' && exportCustomWidthInput && !exportCustomWidthInput.value) {
+                    exportCustomWidthInput.value = Math.round(CARD_WIDTH / 2) || 1000;
+                }
+                updateExportSizeInfo();
+            });
+        }
+        if (exportCustomWidthInput) {
+            exportCustomWidthInput.addEventListener('input', updateExportSizeInfo);
+        }
+    }
+
+    // ==========================================
     // QR Code API Integration
     // ==========================================
 
     function generateQRCode() {
-        const imgData = canvas.toDataURL('image/png', 1.0);
+        const imgData = getExportCanvas().toDataURL('image/png', 1.0);
 
         fetch('/api/generate_qr', {
             method: 'POST',
@@ -1225,7 +1703,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     await new Promise(r => setTimeout(r, 40));
 
                     // 4. Convert to Base64 PNG
-                    const imgData = canvas.toDataURL('image/png', 1.0);
+                    const imgData = getExportCanvas().toDataURL('image/png', 1.0);
 
                     // 5. Send to Backend for saving to results/{teamName}_{playerName}.png
                     try {
@@ -1339,7 +1817,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 .replace(/[\\/*?:"<>|]/g, '_')
                 .trim();
 
-            const dataUrl = canvas.toDataURL('image/png', 1.0);
+            const dataUrl = getExportCanvas().toDataURL('image/png', 1.0);
 
             const link = document.createElement('a');
             link.download = filename;
@@ -1365,7 +1843,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnCopy = document.getElementById('btnCopy');
         if (btnCopy) {
             btnCopy.addEventListener('click', () => {
-                canvas.toBlob((blob) => {
+                getExportCanvas().toBlob((blob) => {
                     if (navigator.clipboard && navigator.clipboard.write) {
                         navigator.clipboard.write([
                             new ClipboardItem({ 'image/png': blob })
@@ -1394,6 +1872,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
+    // Sticky Preview Offset
+    // Keeps the sticky right-hand preview panel positioned right under the
+    // header, whatever the header's actual rendered height turns out to be
+    // (it can shift slightly once web fonts finish loading).
+    // ==========================================
+    function syncHeaderHeightVar() {
+        const header = document.querySelector('.app-header');
+        if (!header) return;
+        document.documentElement.style.setProperty('--header-height', `${header.offsetHeight}px`);
+    }
+
+    function initStickyPreviewOffset() {
+        syncHeaderHeightVar();
+        window.addEventListener('resize', syncHeaderHeightVar);
+        window.addEventListener('load', syncHeaderHeightVar);
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(syncHeaderHeightVar).catch(() => {});
+        }
+        const header = document.querySelector('.app-header');
+        if (header && window.ResizeObserver) {
+            new ResizeObserver(syncHeaderHeightVar).observe(header);
+        }
+    }
+
+    // ==========================================
     // Bootstrap App
     // ==========================================
     initTabs();
@@ -1404,6 +1907,10 @@ document.addEventListener('DOMContentLoaded', () => {
     initModal();
     initLayoutControls();
     initIdNumberModeControls();
+    initStickyPreviewOffset();
+    initCardShapeControls();
+    initTrimGuideControls();
+    initExportSizeControls();
 
     loadLayoutConfig()
         .then(() => {
