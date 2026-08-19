@@ -1,8 +1,8 @@
 {
   "_comment": "Phase 1 config-driven card layout. All positions/sizes are fractions (0-1) of canvasWidth/canvasHeight so they stay valid if the template image is ever swapped for one with different pixel dimensions. Phase 2's GUI editor will read and overwrite this same file.",
   "templateImage": "/static/images/card_template.jpg",
-  "canvasWidth": 2688,
-  "canvasHeight": 1598,
+  "canvasWidth": 1558,
+  "canvasHeight": 1009,
   "logo": {
     "id": "teamLogo",
     "box": {
