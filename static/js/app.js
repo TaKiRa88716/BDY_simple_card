@@ -35,6 +35,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let userTeamLogoImg = null;
     const teamLogoCache = new Map(); // stem/teamName -> HTMLImageElement
 
+    // Background Templates State
+    let currentBgMode = 'template'; // 'template' | 'code'
+    let bgTemplatesList = []; // [{name, filename, url}, ...]
+    const bgTemplatesCache = new Map(); // filename -> HTMLImageElement
+    let selectedBgTemplateFilename = 'default.webp';
+
     // Preset color themes
     const PRESETS = {
         karasuno: { primary: '#f8fafc', accent: '#ff6b00', text: '#111111' },
@@ -58,11 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
         accentColor: document.getElementById('accentColor'),
         textColor: document.getElementById('textColor'),
         cardPattern: document.getElementById('cardPattern'),
-        cardBorderRadius: document.getElementById('cardBorderRadius'),
-        photoZoom: document.getElementById('photoZoom'),
-        photoOffsetX: document.getElementById('photoOffsetX'),
-        photoOffsetY: document.getElementById('photoOffsetY'),
-        zoomVal: document.getElementById('zoomVal')
+        cardBorderRadius: document.getElementById('cardBorderRadius')
     };
 
     // Modal elements
@@ -152,6 +154,158 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
+    // Background Templates Discovery & Management
+    // ==========================================
+
+    function preloadBgTemplateImage(filename, url) {
+        return new Promise((resolve) => {
+            if (bgTemplatesCache.has(filename)) return resolve(bgTemplatesCache.get(filename));
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                bgTemplatesCache.set(filename, img);
+                resolve(img);
+            };
+            img.onerror = () => resolve(null);
+            img.src = url;
+        });
+    }
+
+    async function loadAllBgTemplatesFromServer() {
+        try {
+            const res = await fetch('/api/list_bg_templates');
+            const data = await res.json();
+            if (data.success && data.templates) {
+                bgTemplatesList = data.templates;
+                for (const t of bgTemplatesList) {
+                    await preloadBgTemplateImage(t.filename, t.url);
+                }
+                if (!selectedBgTemplateFilename && bgTemplatesList.length > 0) {
+                    selectedBgTemplateFilename = bgTemplatesList[0].filename;
+                }
+                renderBgTemplateGrid();
+                renderCard();
+            }
+        } catch (e) {
+            console.warn('Could not list bg templates:', e);
+        }
+    }
+
+    function renderBgTemplateGrid() {
+        const grid = document.getElementById('bgTemplateGrid');
+        if (!grid) return;
+        grid.innerHTML = '';
+        if (bgTemplatesList.length === 0) {
+            grid.innerHTML = '<div class="template-loading-hint">尚無底圖模板，請上傳新模板</div>';
+            return;
+        }
+        bgTemplatesList.forEach(t => {
+            const card = document.createElement('div');
+            const isActive = (t.filename === selectedBgTemplateFilename);
+            card.className = `template-item-card ${isActive ? 'active' : ''}`;
+            card.innerHTML = `
+                <img src="${t.url}" class="template-thumb" alt="${t.name}">
+                <div class="template-name">${t.name}</div>
+                ${isActive ? '<span class="template-active-badge">套用中</span>' : ''}
+            `;
+            card.addEventListener('click', () => {
+                selectedBgTemplateFilename = t.filename;
+                renderBgTemplateGrid();
+                renderCard();
+            });
+            grid.appendChild(card);
+        });
+    }
+
+    function initBgTemplateControls() {
+        const modeTemplateLabel = document.getElementById('modeTemplateLabel');
+        const modeCodeLabel = document.getElementById('modeCodeLabel');
+        const secTemplate = document.getElementById('section-template-controls');
+        const secCode = document.getElementById('section-code-controls');
+        const radioTemplate = document.getElementById('bgModeTemplate');
+        const radioCode = document.getElementById('bgModeCode');
+        const btnRefresh = document.getElementById('btnRefreshTemplates');
+        const uploadInput = document.getElementById('bgTemplateUpload');
+        const dropZone = document.getElementById('bgTemplateDropZone');
+
+        function switchMode(mode) {
+            currentBgMode = mode;
+            if (mode === 'template') {
+                if (modeTemplateLabel) modeTemplateLabel.classList.add('active');
+                if (modeCodeLabel) modeCodeLabel.classList.remove('active');
+                if (secTemplate) secTemplate.style.display = 'flex';
+                if (secCode) secCode.style.display = 'none';
+                if (radioTemplate) radioTemplate.checked = true;
+            } else {
+                if (modeTemplateLabel) modeTemplateLabel.classList.remove('active');
+                if (modeCodeLabel) modeCodeLabel.classList.add('active');
+                if (secTemplate) secTemplate.style.display = 'none';
+                if (secCode) secCode.style.display = 'flex';
+                if (radioCode) radioCode.checked = true;
+            }
+            renderCard();
+        }
+
+        if (radioTemplate) radioTemplate.addEventListener('change', () => switchMode('template'));
+        if (radioCode) radioCode.addEventListener('change', () => switchMode('code'));
+        if (modeTemplateLabel) modeTemplateLabel.addEventListener('click', () => switchMode('template'));
+        if (modeCodeLabel) modeCodeLabel.addEventListener('click', () => switchMode('code'));
+
+        if (btnRefresh) btnRefresh.addEventListener('click', loadAllBgTemplatesFromServer);
+
+        const handleUploadFile = async (file) => {
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch('/api/upload_bg_template', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await res.json();
+                if (result.success) {
+                    await preloadBgTemplateImage(result.filename, result.url);
+                    selectedBgTemplateFilename = result.filename;
+                    await loadAllBgTemplatesFromServer();
+                    alert(`✅ 底圖模板「${result.name}」已成功上傳並套用！`);
+                } else {
+                    alert(`❌ 上傳失敗: ${result.error}`);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('上傳底圖模板失敗，請稍後再試。');
+            }
+        };
+
+        if (uploadInput) {
+            uploadInput.addEventListener('change', (e) => {
+                handleUploadFile(e.target.files[0]);
+            });
+        }
+
+        if (dropZone) {
+            ['dragenter', 'dragover'].forEach(name => {
+                dropZone.addEventListener(name, (e) => {
+                    e.preventDefault();
+                    dropZone.classList.add('dragover');
+                });
+            });
+            ['dragleave', 'drop'].forEach(name => {
+                dropZone.addEventListener(name, (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('dragover');
+                });
+            });
+            dropZone.addEventListener('drop', (e) => {
+                const dt = e.dataTransfer;
+                if (dt && dt.files && dt.files.length > 0) {
+                    handleUploadFile(dt.files[0]);
+                }
+            });
+        }
+    }
+
+    // ==========================================
     // Core Card Render Engine (HTML5 Canvas)
     // ==========================================
 
@@ -160,7 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderCardForData(data);
     }
 
-    function renderCardForData(data, activeLogoImg) {
+    function renderCardForData(data, activeLogoImg, activeBgTemplateImg) {
         ctx.clearRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
         const borderRadius = data.cardBorderRadius === 'rounded' ? 45 : 0;
@@ -170,24 +324,35 @@ document.addEventListener('DOMContentLoaded', () => {
         drawRoundedRect(ctx, 0, 0, CARD_WIDTH, CARD_HEIGHT, borderRadius);
         ctx.clip();
 
-        // Solid Card Background Fill (Pure, clean, no unwanted gradient darkening)
-        ctx.fillStyle = data.primaryColor;
-        ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+        const isTemplateMode = (currentBgMode === 'template');
+        const bgImg = activeBgTemplateImg || (isTemplateMode && selectedBgTemplateFilename ? bgTemplatesCache.get(selectedBgTemplateFilename) : null);
 
-        // 2. Background Pattern Overlay
-        drawBackgroundPattern(data.cardPattern, data.accentColor);
+        if (isTemplateMode && bgImg && bgImg.width > 0) {
+            // 🖼️ Draw Designer Background Template
+            ctx.drawImage(bgImg, 0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-        // 3. Top Header Banner
-        drawHeaderBanner(data);
+            // Draw Header Text Overlay
+            drawHeaderBanner(data, true);
+        } else {
+            // 🎨 Solid Card Background Fill (Pure, clean, no unwanted gradient darkening)
+            ctx.fillStyle = data.primaryColor;
+            ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+
+            // 2. Background Pattern Overlay
+            drawBackgroundPattern(data.cardPattern, data.accentColor);
+
+            // 3. Top Header Banner
+            drawHeaderBanner(data, false);
+        }
 
         // 4. Square Team Logo Frame (Right side 1:1)
-        drawTeamLogoSquareSection(data, activeLogoImg);
+        drawTeamLogoSquareSection(data, activeLogoImg, isTemplateMode);
 
         // 5. Main Info (Name, Number, Team Name Box)
-        drawMainInfo(data);
+        drawMainInfo(data, isTemplateMode);
 
         // 6. Security Barcode & Footer
-        drawFooterSecurity(data);
+        drawFooterSecurity(data, isTemplateMode);
 
         // 7. Card Border Outline
         ctx.restore();
@@ -201,34 +366,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Sub-renderers ---
 
-    function drawHeaderBanner(data) {
+    function drawHeaderBanner(data, isTemplateMode = false) {
         ctx.save();
 
         const bannerHeight = 165;
         const bannerRightX = CARD_WIDTH * 0.65;
         const bannerCutX = CARD_WIDTH * 0.57;
 
-        // 1. Banner Angled Background (Solid Black)
-        ctx.fillStyle = '#11161d';
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(bannerRightX, 0);
-        ctx.lineTo(bannerCutX, bannerHeight);
-        ctx.lineTo(0, bannerHeight);
-        ctx.closePath();
-        ctx.fill();
+        if (!isTemplateMode) {
+            // 1. Banner Angled Background (Solid Black)
+            ctx.fillStyle = '#11161d';
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(bannerRightX, 0);
+            ctx.lineTo(bannerCutX, bannerHeight);
+            ctx.lineTo(0, bannerHeight);
+            ctx.closePath();
+            ctx.fill();
 
-        // 2. Top Accent Stripe along top of card
-        ctx.fillStyle = data.accentColor;
-        ctx.fillRect(0, 0, bannerRightX, 8);
+            // 2. Top Accent Stripe along top of card
+            ctx.fillStyle = data.accentColor;
+            ctx.fillRect(0, 0, bannerRightX, 8);
 
-        // 3. Accent colored angled right slash edge line
-        ctx.strokeStyle = data.accentColor;
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.moveTo(bannerRightX, 0);
-        ctx.lineTo(bannerCutX, bannerHeight);
-        ctx.stroke();
+            // 3. Accent colored angled right slash edge line
+            ctx.strokeStyle = data.accentColor;
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(bannerRightX, 0);
+            ctx.lineTo(bannerCutX, bannerHeight);
+            ctx.stroke();
+        }
 
         // 4. Header Title (Issuer / Tournament Name - Pure White)
         ctx.fillStyle = '#ffffff';
@@ -239,7 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 5. English Subtitle (Accent Color, e.g. Purple)
         ctx.font = '700 24px "Orbitron", sans-serif';
-        ctx.fillStyle = data.accentColor;
+        ctx.fillStyle = data.accentColor || '#501898';
         ctx.fillText('OFFICIAL ATHLETE IDENTIFICATION CARD', 60, 122);
 
         // 6. Right side badge
@@ -252,7 +419,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
 
-    function drawTeamLogoSquareSection(data, activeLogoImg) {
+    function drawTeamLogoSquareSection(data, activeLogoImg, isTemplateMode = false) {
         const pX = 1040;
         const pY = 240;
         const pW = 760;
@@ -261,55 +428,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ctx.save();
 
-        // Drop shadow for outer frame
-        ctx.shadowColor = 'rgba(0,0,0,0.12)';
-        ctx.shadowBlur = 16;
-        ctx.fillStyle = '#ffffff';
-        drawRoundedRect(ctx, pX - 4, pY - 4, pW + 8, pH + 8, pRadius + 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
+        if (!isTemplateMode) {
+            // Drop shadow for outer frame
+            ctx.shadowColor = 'rgba(0,0,0,0.12)';
+            ctx.shadowBlur = 16;
+            ctx.fillStyle = '#ffffff';
+            drawRoundedRect(ctx, pX - 4, pY - 4, pW + 8, pH + 8, pRadius + 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
 
         ctx.beginPath();
         drawRoundedRect(ctx, pX, pY, pW, pH, pRadius);
         ctx.clip();
 
-        // Effective logo: passed logoImg > userTeamLogoImg > teamLogoCache for teamName
-        const logoImg = activeLogoImg || userTeamLogoImg || getCachedLogoForTeam(data.teamName);
+        // Effective logo: matched automatically from teamName (or passed in batch)
+        const logoImg = activeLogoImg || getCachedLogoForTeam(data.teamName);
 
         // Fill background inside square frame with clean White
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(pX, pY, pW, pH);
 
         if (logoImg && logoImg.width > 0 && logoImg.height > 0) {
-            const zoom = (data.photoZoom || 100) / 100;
-            const offsetX = ((data.photoOffsetX || 0) / 100) * (pW / 2);
-            const offsetY = ((data.photoOffsetY || 0) / 100) * (pH / 2);
-
             const imgRatio = logoImg.width / logoImg.height;
             const boxRatio = pW / pH;
 
             let drawW, drawH;
             if (imgRatio > boxRatio) {
-                drawW = pW * zoom;
+                drawW = pW;
                 drawH = drawW / imgRatio;
             } else {
-                drawH = pH * zoom;
+                drawH = pH;
                 drawW = drawH * imgRatio;
             }
 
-            const drawX = pX + (pW - drawW) / 2 + offsetX;
-            const drawY = pY + (pH - drawH) / 2 + offsetY;
+            const drawX = pX + (pW - drawW) / 2;
+            const drawY = pY + (pH - drawH) / 2;
 
             ctx.drawImage(logoImg, drawX, drawY, drawW, drawH);
-        } else {
-            drawDefaultTeamCrest(pX, pY, pW, data.accentColor);
         }
+        // If no matching logo found, it remains clean pure white (空白)!
 
-        // Clean crisp border outline
-        ctx.strokeStyle = data.accentColor;
-        ctx.lineWidth = 4;
-        drawRoundedRect(ctx, pX, pY, pW, pH, pRadius);
-        ctx.stroke();
+        if (!isTemplateMode) {
+            // Clean crisp border outline
+            ctx.strokeStyle = data.accentColor;
+            ctx.lineWidth = 4;
+            drawRoundedRect(ctx, pX, pY, pW, pH, pRadius);
+            ctx.stroke();
+        }
 
         ctx.restore();
     }
@@ -371,21 +537,23 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
 
-    function drawMainInfo(data) {
+    function drawMainInfo(data, isTemplateMode = false) {
         ctx.save();
 
         const numX = 70;
         const numY = 220;
         const numH = 195;
 
-        // 1. Enlarge Jersey Number Badge Background Width (#03)
+        // 1. Enlarge Jersey Number Badge Width (#03 / #07)
         const numStr = '#' + data.jerseyNumber;
         let numW = 310;
         if (numStr.length >= 4) numW = 340;
 
-        ctx.fillStyle = data.accentColor;
-        drawRoundedRect(ctx, numX, numY, numW, numH, 28);
-        ctx.fill();
+        if (!isTemplateMode) {
+            ctx.fillStyle = data.accentColor;
+            drawRoundedRect(ctx, numX, numY, numW, numH, 28);
+            ctx.fill();
+        }
 
         ctx.fillStyle = '#ffffff';
         ctx.font = '900 102px "Orbitron", sans-serif';
@@ -413,18 +581,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const teamW = 920;
         const teamH = 260;
 
-        // Solid opaque background (RGB 242/234/248 for Shiratorizawa)
-        ctx.fillStyle = getSolidPastelColor(data.accentColor);
-        ctx.strokeStyle = rgbaColor(data.accentColor, 0.55);
-        ctx.lineWidth = 2;
-        drawRoundedRect(ctx, numX, teamY, teamW, teamH, 24);
-        ctx.fill();
-        ctx.stroke();
+        if (!isTemplateMode) {
+            // Solid opaque background (RGB 242/234/248 for Shiratorizawa)
+            ctx.fillStyle = getSolidPastelColor(data.accentColor);
+            ctx.strokeStyle = rgbaColor(data.accentColor, 0.55);
+            ctx.lineWidth = 2;
+            drawRoundedRect(ctx, numX, teamY, teamW, teamH, 24);
+            ctx.fill();
+            ctx.stroke();
 
-        // Accent strip on left of Team Box
-        ctx.fillStyle = data.accentColor;
-        drawRoundedRect(ctx, numX, teamY, 12, teamH, 6);
-        ctx.fill();
+            // Accent strip on left of Team Box
+            ctx.fillStyle = data.accentColor;
+            drawRoundedRect(ctx, numX, teamY, 12, teamH, 6);
+            ctx.fill();
+        }
 
         // Line 1: Header Label (TEAM NAME / 隊伍名稱)
         ctx.fillStyle = data.accentColor;
@@ -452,7 +622,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
 
-    function drawFooterSecurity(data) {
+    function drawFooterSecurity(data, isTemplateMode = false) {
         ctx.save();
 
         const numX = 70;
@@ -486,17 +656,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const jvaX = 880;
         const jvaY = footerY + 60;
         
-        ctx.strokeStyle = data.accentColor;
-        ctx.lineWidth = 3.5;
-        ctx.beginPath();
-        ctx.arc(jvaX, jvaY, 44, 0, Math.PI * 2);
-        ctx.stroke();
+        if (!isTemplateMode) {
+            ctx.strokeStyle = data.accentColor;
+            ctx.lineWidth = 3.5;
+            ctx.beginPath();
+            ctx.arc(jvaX, jvaY, 44, 0, Math.PI * 2);
+            ctx.stroke();
 
-        ctx.strokeStyle = rgbaColor(data.accentColor, 0.50);
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(jvaX, jvaY, 36, 0, Math.PI * 2);
-        ctx.stroke();
+            ctx.strokeStyle = rgbaColor(data.accentColor, 0.50);
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(jvaX, jvaY, 36, 0, Math.PI * 2);
+            ctx.stroke();
+        }
 
         ctx.fillStyle = data.accentColor;
         ctx.font = '900 30px "Orbitron", sans-serif';
@@ -509,13 +681,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const locW = 920;
         const locH = 92;
 
-        // Solid opaque background (RGB 242/234/248 for Shiratorizawa)
-        ctx.fillStyle = getSolidPastelColor(data.accentColor);
-        ctx.strokeStyle = rgbaColor(data.accentColor, 0.55);
-        ctx.lineWidth = 2;
-        drawRoundedRect(ctx, numX, locY, locW, locH, 20);
-        ctx.fill();
-        ctx.stroke();
+        if (!isTemplateMode) {
+            // Solid opaque background (RGB 242/234/248 for Shiratorizawa)
+            ctx.fillStyle = getSolidPastelColor(data.accentColor);
+            ctx.strokeStyle = rgbaColor(data.accentColor, 0.55);
+            ctx.lineWidth = 2;
+            drawRoundedRect(ctx, numX, locY, locW, locH, 20);
+            ctx.fill();
+            ctx.stroke();
+        }
 
         // Location text processing
         let rawLoc = data.footerNote2 || 'NVA Club House 排球俱樂部';
@@ -528,9 +702,11 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.font = '900 24px "Orbitron", sans-serif';
         ctx.fillText('LOCATION', numX + 26, locY + locH / 2);
 
-        // Vertical Divider
-        ctx.fillStyle = rgbaColor(data.textColor || '#111111', 0.25);
-        ctx.fillRect(numX + 180, locY + 16, 2, locH - 32);
+        if (!isTemplateMode) {
+            // Vertical Divider
+            ctx.fillStyle = rgbaColor(data.textColor || '#111111', 0.25);
+            ctx.fillRect(numX + 180, locY + 16, 2, locH - 32);
+        }
 
         // Prominently Enlarged Address / Club House String (Font 34px)
         let addrStr = rawLoc.replace(/^Location:\s*/i, '').trim();
@@ -707,14 +883,11 @@ document.addEventListener('DOMContentLoaded', () => {
             associationName: fields.associationName ? fields.associationName.value : DEFAULT_DATA.associationName,
             validThru: fields.validThru ? fields.validThru.value : DEFAULT_DATA.validThru,
             footerNote2: fields.footerNote2 ? fields.footerNote2.value : DEFAULT_DATA.footerNote2,
-            primaryColor: fields.primaryColor.value,
-            accentColor: fields.accentColor.value,
+            primaryColor: fields.primaryColor ? fields.primaryColor.value : '#ffffff',
+            accentColor: fields.accentColor ? fields.accentColor.value : '#501898',
             textColor: fields.textColor ? fields.textColor.value : (DEFAULT_DATA.textColor || '#111111'),
-            cardPattern: fields.cardPattern.value,
-            cardBorderRadius: fields.cardBorderRadius.value,
-            photoZoom: parseFloat(fields.photoZoom.value),
-            photoOffsetX: parseFloat(fields.photoOffsetX.value),
-            photoOffsetY: parseFloat(fields.photoOffsetY.value)
+            cardPattern: fields.cardPattern ? fields.cardPattern.value : 'volleyball',
+            cardBorderRadius: fields.cardBorderRadius ? fields.cardBorderRadius.value : 'rounded'
         };
     }
 
@@ -739,13 +912,6 @@ document.addEventListener('DOMContentLoaded', () => {
         Object.values(fields).forEach(el => {
             if (el && el.addEventListener) {
                 el.addEventListener('input', () => {
-                    if (el === fields.photoZoom) {
-                        fields.zoomVal.innerText = fields.photoZoom.value + '%';
-                    }
-                    if (el === fields.teamName) {
-                        const matched = getCachedLogoForTeam(fields.teamName.value);
-                        if (matched) userTeamLogoImg = matched;
-                    }
                     renderCard();
                 });
                 el.addEventListener('change', renderCard);
@@ -760,8 +926,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const presetKey = btn.getAttribute('data-preset');
                 if (PRESETS[presetKey]) {
-                    fields.primaryColor.value = PRESETS[presetKey].primary;
-                    fields.accentColor.value = PRESETS[presetKey].accent;
+                    if (fields.primaryColor) fields.primaryColor.value = PRESETS[presetKey].primary;
+                    if (fields.accentColor) fields.accentColor.value = PRESETS[presetKey].accent;
                     if (fields.textColor && PRESETS[presetKey].text) {
                         fields.textColor.value = PRESETS[presetKey].text;
                     }
@@ -772,82 +938,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function initFileUploads() {
-        const photoInput = document.getElementById('photoUpload');
-        if (photoInput) {
-            photoInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                        const img = new Image();
-                        img.onload = () => {
-                            userPhotoImg = img;
-                            renderCard();
-                        };
-                        img.src = event.target.result;
-                    };
-                    reader.readAsDataURL(file);
-                }
-            });
-        }
-
-        // Single Logo Upload in Logo Tab
-        const teamLogoInput = document.getElementById('teamLogoUpload');
-        const singleDropZone = document.getElementById('singleLogoDropZone');
-
-        const processSingleLogo = (file) => {
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const img = new Image();
-                img.onload = () => {
-                    userTeamLogoImg = img;
-                    const curTeam = fields.teamName ? fields.teamName.value.trim() : '';
-                    if (curTeam) teamLogoCache.set(curTeam, img);
-                    const stem = file.name.replace(/\.[^/.]+$/, "").trim();
-                    if (stem) teamLogoCache.set(stem, img);
-                    updateDetectedLogosBadge();
-                    renderCard();
-
-                    // Persist to server
-                    const fd = new FormData();
-                    fd.append('file', file);
-                    fd.append('team_name', curTeam || stem);
-                    fetch('/api/upload_team_logo', { method: 'POST', body: fd })
-                        .catch(err => console.error('Logo upload error:', err));
-                };
-                img.src = event.target.result;
-            };
-            reader.readAsDataURL(file);
-        };
-
-        if (teamLogoInput) {
-            teamLogoInput.addEventListener('change', (e) => {
-                processSingleLogo(e.target.files[0]);
-            });
-        }
-
-        if (singleDropZone) {
-            ['dragenter', 'dragover'].forEach(name => {
-                singleDropZone.addEventListener(name, (e) => {
-                    e.preventDefault();
-                    singleDropZone.classList.add('dragover');
-                });
-            });
-            ['dragleave', 'drop'].forEach(name => {
-                singleDropZone.addEventListener(name, (e) => {
-                    e.preventDefault();
-                    singleDropZone.classList.remove('dragover');
-                });
-            });
-            singleDropZone.addEventListener('drop', (e) => {
-                const dt = e.dataTransfer;
-                if (dt.files && dt.files.length > 0) {
-                    processSingleLogo(dt.files[0]);
-                }
-            });
-        }
-
         // Multi-Logo Upload in Batch Tab
         const batchLogoUpload = document.getElementById('batchLogoUpload');
         const batchLogoDropZone = document.getElementById('batchLogoDropZone');
@@ -1321,13 +1411,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // ==========================================
     initTabs();
     initControls();
+    initBgTemplateControls();
     initFileUploads();
     initBatchGeneration();
     initButtons();
     initModal();
 
-    // Auto load server logos and render
-    loadAllTeamLogosFromServer().then(() => {
+    // Auto load server logos, background templates, and render
+    Promise.all([
+        loadAllTeamLogosFromServer(),
+        loadAllBgTemplatesFromServer()
+    ]).then(() => {
         renderCard();
     });
 

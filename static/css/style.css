@@ -236,7 +236,7 @@ body {
 /* Form Tabs */
 .form-tabs {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     background: rgba(0, 0, 0, 0.25);
     padding: 4px;
     border-radius: var(--radius-md);
@@ -912,4 +912,171 @@ input[type="color"] {
 .batch-result-actions {
     display: flex;
     gap: 10px;
+}
+
+/* ==========================================================================
+   Background Template (底圖模板) Styles
+   ========================================================================== */
+
+.mode-switch-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+}
+
+.mode-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1.5px solid rgba(255, 255, 255, 0.1);
+    padding: 12px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.25s ease;
+    user-select: none;
+}
+
+.mode-card input[type="radio"] {
+    display: none;
+}
+
+.mode-card:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.mode-card.active {
+    border-color: var(--primary);
+    background: rgba(255, 107, 0, 0.12);
+    box-shadow: 0 0 16px rgba(255, 107, 0, 0.2);
+}
+
+.mode-icon {
+    font-size: 1.6rem;
+    line-height: 1;
+}
+
+.mode-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.mode-info strong {
+    font-size: 0.9rem;
+    color: var(--text-main);
+}
+
+.mode-info span {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.theme-mode-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+    width: 100%;
+    animation: fadeIn 0.25s ease-out;
+}
+
+.label-with-action {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.btn-text {
+    background: transparent;
+    border: none;
+    color: var(--primary);
+    font-size: 0.78rem;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.btn-text:hover {
+    background: rgba(255, 107, 0, 0.15);
+}
+
+.bg-template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-sm);
+}
+
+.template-item-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    background: #121720;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.template-item-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.template-item-card.active {
+    border-color: #00e676;
+    box-shadow: 0 0 14px rgba(0, 230, 118, 0.35);
+}
+
+.template-thumb {
+    width: 100%;
+    aspect-ratio: 1.66;
+    object-fit: cover;
+    background: #0a0d13;
+    display: block;
+}
+
+.template-name {
+    padding: 6px 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.template-active-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: #00e676;
+    color: #0a0d13;
+    font-size: 0.65rem;
+    font-weight: 900;
+    padding: 2px 5px;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.template-loading-hint {
+    padding: 18px;
+    text-align: center;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    grid-column: 1 / -1;
 }

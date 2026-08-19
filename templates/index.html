@@ -47,8 +47,7 @@
 
             <div class="form-tabs">
                 <button class="tab-btn active" data-tab="tab-basic">基本資料</button>
-                <button class="tab-btn" data-tab="tab-photo">球隊標誌 (Logo)</button>
-                <button class="tab-btn" data-tab="tab-theme">主題風格</button>
+                <button class="tab-btn" data-tab="tab-theme">🎨 主題風格 / 底圖</button>
                 <button class="tab-btn" data-tab="tab-batch">📁 批次生成 (Excel/CSV)</button>
             </div>
 
@@ -61,7 +60,7 @@
 
                 <div class="form-row">
                     <div class="form-group col-7">
-                        <label for="teamName">隊伍名稱</label>
+                        <label for="teamName">隊伍名稱 (自動配對「隊伍Logo/」圖檔)</label>
                         <input type="text" id="teamName" value="巴豆妖排球隊" placeholder="例: 巴豆妖排球隊">
                     </div>
                     <div class="form-group col-5">
@@ -95,109 +94,125 @@
                 </div>
             </div>
 
-            <!-- 頁籤2: 球隊標誌 (Logo) -->
-            <div class="tab-content" id="tab-photo">
+            <!-- 頁籤3: 主題風格 / 底圖模板 -->
+            <div class="tab-content" id="tab-theme">
+                <!-- 核心模式選擇: 底圖模板 vs 程式繪製 -->
                 <div class="form-group">
-                    <label>上傳球隊 Logo (支援 PNG, JPG, JPEG, WEBP - 1:1 正方形或透明背景)</label>
-                    <div class="file-upload-box" id="singleLogoDropZone">
-                        <input type="file" id="teamLogoUpload" accept="image/png, image/jpeg, image/jpg, image/webp, image/svg+xml">
-                        <div class="upload-label">
-                            <span class="upload-icon">🛡️</span>
-                            <strong>點擊或拖曳球隊 Logo 圖檔至此上傳</strong>
-                            <span class="upload-hint">自動配對當前隊伍並儲存至 隊伍Logo/</span>
+                    <label>背景渲染模式</label>
+                    <div class="mode-switch-grid">
+                        <label class="mode-card active" id="modeTemplateLabel">
+                            <input type="radio" name="bgMode" id="bgModeTemplate" value="template" checked>
+                            <span class="mode-icon">🖼️</span>
+                            <div class="mode-info">
+                                <strong>美編底圖模板</strong>
+                                <span>套用實體高畫質美編底圖</span>
+                            </div>
+                        </label>
+                        <label class="mode-card" id="modeCodeLabel">
+                            <input type="radio" name="bgMode" id="bgModeCode" value="code">
+                            <span class="mode-icon">🎨</span>
+                            <div class="mode-info">
+                                <strong>程式動態配色</strong>
+                                <span>純程式自訂主色與防偽網紋</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 1. 美編底圖模板控制區塊 -->
+                <div id="section-template-controls" class="theme-mode-section">
+                    <div class="form-group">
+                        <div class="label-with-action">
+                            <label>選擇底圖模板 (地端「底圖模板/」目錄)</label>
+                            <button type="button" class="btn-text" id="btnRefreshTemplates">🔄 重新整理</button>
+                        </div>
+                        <div class="bg-template-grid" id="bgTemplateGrid">
+                            <!-- JS 動態插入模板卡片 -->
+                            <div class="template-loading-hint">載入底圖模板中...</div>
                         </div>
                     </div>
-                </div>
 
-                <div class="form-group">
-                    <label>已偵測 / 就緒的隊伍 Logo 清單：</label>
-                    <div class="detected-logos-box" id="detectedLogosList">
-                        <!-- 動態插入已讀取的隊伍 Logo 標籤 -->
-                    </div>
-                </div>
-
-                <div class="photo-controls" id="logoControls">
                     <div class="form-group">
-                        <label for="photoZoom">Logo 縮放 (<span id="zoomVal">100%</span>)</label>
-                        <input type="range" id="photoZoom" min="50" max="250" value="100">
+                        <label>📤 上傳新底圖模板 (.png, .jpg, .webp)</label>
+                        <div class="file-upload-box" id="bgTemplateDropZone" style="padding: 16px 12px;">
+                            <input type="file" id="bgTemplateUpload" accept=".png, .jpg, .jpeg, .webp">
+                            <div class="upload-label">
+                                <span class="upload-icon" style="font-size: 1.5rem;">🖼️</span>
+                                <strong style="font-size: 0.92rem;">點擊或拖曳底圖模板至此</strong>
+                                <span class="upload-hint">自動存入「底圖模板/」資料夾並即時套用</span>
+                            </div>
+                        </div>
                     </div>
+
                     <div class="form-row">
                         <div class="form-group col-6">
-                            <label for="photoOffsetX">左右平移</label>
-                            <input type="range" id="photoOffsetX" min="-100" max="100" value="0">
+                            <label for="textColor">文字顏色 (Text Color)</label>
+                            <input type="color" id="textColor" value="#111111">
                         </div>
                         <div class="form-group col-6">
-                            <label for="photoOffsetY">上下平移</label>
-                            <input type="range" id="photoOffsetY" min="-100" max="100" value="0">
+                            <label for="accentColor">重點強調色 (Subtitle/Accent)</label>
+                            <input type="color" id="accentColor" value="#501898">
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- 頁籤3: 主題風格 -->
-            <div class="tab-content" id="tab-theme">
-                <div class="form-group">
-                    <label>預設隊伍配色主題</label>
-                    <div class="preset-grid">
-                        <button class="preset-btn active" data-preset="karasuno">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #111 50%, #ff6600 50%);"></span>
-                            <span>烏野黑橘</span>
-                        </button>
-                        <button class="preset-btn" data-preset="nekoma">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #cc0000 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
-                            <span>音駒紅白</span>
-                        </button>
-                        <button class="preset-btn" data-preset="aoba">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #00a896 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
-                            <span>青葉城西</span>
-                        </button>
-                        <button class="preset-btn" data-preset="fukurodani">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #1a1a1a 50%, #e6ad00 50%); border: 1px solid #ddd;"></span>
-                            <span>梟谷黑金</span>
-                        </button>
-                        <button class="preset-btn" data-preset="inarizaki">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #111 50%, #888888 50%); border: 1px solid #ddd;"></span>
-                            <span>稻荷崎黑灰</span>
-                        </button>
-                        <button class="preset-btn" data-preset="shiratorizawa">
-                            <span class="swatch"
-                                style="background: linear-gradient(135deg, #501898 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
-                            <span>白鳥澤紫白</span>
-                        </button>
+                <!-- 2. 程式動態配色控制區塊 (預設隱藏) -->
+                <div id="section-code-controls" class="theme-mode-section" style="display: none;">
+                    <div class="form-group">
+                        <label>預設隊伍配色主題</label>
+                        <div class="preset-grid">
+                            <button class="preset-btn" data-preset="karasuno">
+                                <span class="swatch"
+                                    style="background: linear-gradient(135deg, #111 50%, #ff6600 50%);"></span>
+                                <span>烏野黑橘</span>
+                            </button>
+                            <button class="preset-btn" data-preset="nekoma">
+                                <span class="swatch"
+                                    style="background: linear-gradient(135deg, #cc0000 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
+                                <span>音駒紅白</span>
+                            </button>
+                            <button class="preset-btn" data-preset="aoba">
+                                <span class="swatch"
+                                    style="background: linear-gradient(135deg, #00a896 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
+                                <span>青葉城西</span>
+                            </button>
+                            <button class="preset-btn" data-preset="fukurodani">
+                                <span class="swatch"
+                                    style="background: linear-gradient(135deg, #1a1a1a 50%, #e6ad00 50%); border: 1px solid #ddd;"></span>
+                                <span>梟谷黑金</span>
+                            </button>
+                            <button class="preset-btn" data-preset="inarizaki">
+                                <span class="swatch"
+                                    style="background: linear-gradient(135deg, #111 50%, #888888 50%); border: 1px solid #ddd;"></span>
+                                <span>稻荷崎黑灰</span>
+                            </button>
+                            <button class="preset-btn active" data-preset="shiratorizawa">
+                                <span class="swatch"
+                                    style="background: linear-gradient(135deg, #501898 50%, #ffffff 50%); border: 1px solid #ddd;"></span>
+                                <span>白鳥澤紫白</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="primaryColor">主色調 (Primary)</label>
+                            <input type="color" id="primaryColor" value="#ffffff">
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="cardPattern">底紋防偽花紋</label>
+                            <select id="cardPattern">
+                                <option value="volleyball">排球網狀 (Volleyball Mesh)</option>
+                                <option value="stripes">動感斜線 (Speed Lines)</option>
+                                <option value="dots">科技點陣 (Tech Dots)</option>
+                                <option value="clean">極簡素雅 (Clean)</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
                 <div class="form-row">
-                    <div class="form-group col-4">
-                        <label for="primaryColor">主色調 (Primary)</label>
-                        <input type="color" id="primaryColor" value="#f8fafc">
-                    </div>
-                    <div class="form-group col-4">
-                        <label for="accentColor">重點強調色 (Accent)</label>
-                        <input type="color" id="accentColor" value="#ff6b00">
-                    </div>
-                    <div class="form-group col-4">
-                        <label for="textColor">文字顏色 (Text Color)</label>
-                        <input type="color" id="textColor" value="#111111">
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group col-6">
-                        <label for="cardPattern">底紋防偽花紋</label>
-                        <select id="cardPattern">
-                            <option value="volleyball">排球網狀 (Volleyball Mesh)</option>
-                            <option value="stripes">動感斜線 (Speed Lines)</option>
-                            <option value="dots">科技點陣 (Tech Dots)</option>
-                            <option value="clean">極簡素雅 (Clean)</option>
-                        </select>
-                    </div>
-                    <div class="form-group col-6">
+                    <div class="form-group col-12">
                         <label for="cardBorderRadius">邊框導角</label>
                         <select id="cardBorderRadius">
                             <option value="rounded">圓角 (Rounded)</option>

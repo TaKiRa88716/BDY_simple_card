@@ -30,17 +30,74 @@ def add_header(response):
     response.headers['Expires'] = '-1'
     return response
 
-# 確保 static/cards、results 與 隊伍Logo 資料夾存在
+# 確保 static/cards、results、隊伍Logo 與 底圖模板 資料夾存在
 CARDS_DIR = os.path.join(app.static_folder, 'cards')
 RESULTS_DIR = os.path.join(app.root_path, 'results')
 TEAM_LOGO_DIR = os.path.join(app.root_path, '隊伍Logo')
+BG_TEMPLATE_DIR = os.path.join(app.root_path, '底圖模板')
 os.makedirs(CARDS_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(TEAM_LOGO_DIR, exist_ok=True)
+os.makedirs(BG_TEMPLATE_DIR, exist_ok=True)
 
 def sanitize_filename(name):
     """清理 Windows 檔案名稱中的非法字元"""
     return re.sub(r'[\\/*?:"<>|]', '', str(name)).strip()
+
+@app.route('/bg_template/<path:filename>')
+def serve_bg_template(filename):
+    """提供底圖模板圖檔存取"""
+    return send_from_directory(BG_TEMPLATE_DIR, filename)
+
+@app.route('/api/list_bg_templates')
+def list_bg_templates():
+    """列出 底圖模板 資料夾中所有可用的模板圖檔"""
+    try:
+        templates = []
+        for fname in os.listdir(BG_TEMPLATE_DIR):
+            if fname.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.svg')):
+                stem = os.path.splitext(fname)[0].strip()
+                templates.append({
+                    'name': stem,
+                    'filename': fname,
+                    'url': url_for('serve_bg_template', filename=fname)
+                })
+        return jsonify({'success': True, 'templates': templates})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/upload_bg_template', methods=['POST'])
+def upload_bg_template():
+    """上傳新底圖模板圖檔 (支援 PNG, JPG, WEBP, SVG)"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': '未找到上傳圖檔'}), 400
+        
+        file = request.files['file']
+        if not file or file.filename == '':
+            return jsonify({'success': False, 'error': '未選擇檔案'}), 400
+
+        template_name = request.form.get('template_name', '').strip()
+        orig_name = sanitize_filename(file.filename)
+        ext = os.path.splitext(orig_name)[1].lower()
+        if not ext:
+            ext = '.webp'
+
+        target_name = f"{sanitize_filename(template_name)}{ext}" if template_name else orig_name
+        filepath = os.path.join(BG_TEMPLATE_DIR, target_name)
+        file.save(filepath)
+
+        stem = os.path.splitext(target_name)[0]
+        template_url = url_for('serve_bg_template', filename=target_name)
+
+        return jsonify({
+            'success': True,
+            'name': stem,
+            'filename': target_name,
+            'url': template_url
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/team_logo/<path:filename>')
 def serve_team_logo(filename):
