@@ -513,6 +513,65 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
+
+        // Export the current layout as a downloadable JSON backup
+        const btnExportLayout = document.getElementById('btnExportLayout');
+        if (btnExportLayout) {
+            btnExportLayout.addEventListener('click', () => {
+                if (!LAYOUT) return;
+                const blob = new Blob([JSON.stringify(LAYOUT, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'card_layout_backup.json';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+
+        // Import a previously exported layout JSON and apply it to the live preview
+        const btnImportLayout = document.getElementById('btnImportLayout');
+        const layoutImportInput = document.getElementById('layoutImportInput');
+        if (btnImportLayout && layoutImportInput) {
+            btnImportLayout.addEventListener('click', () => layoutImportInput.click());
+            layoutImportInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const imported = JSON.parse(ev.target.result);
+                        if (!Array.isArray(imported.fields) || !imported.logo) {
+                            alert('這不是有效的版面設定檔（缺少 fields 或 logo）。');
+                            return;
+                        }
+                        if (!LAYOUT) return;
+
+                        // Merge by field id — a backup made before a newer field
+                        // (e.g. barcode) existed won't delete what's here now.
+                        imported.fields.forEach(importedField => {
+                            const idx = LAYOUT.fields.findIndex(f => f.id === importedField.id);
+                            if (idx >= 0) LAYOUT.fields[idx] = importedField;
+                            else LAYOUT.fields.push(importedField);
+                        });
+                        LAYOUT.logo = Object.assign({}, LAYOUT.logo, imported.logo);
+                        if (imported.barcode) LAYOUT.barcode = Object.assign({}, LAYOUT.barcode, imported.barcode);
+
+                        syncLayoutControlsFromLAYOUT();
+                        renderCard();
+                        alert('✅ 版面設定已匯入到目前畫面！記得按「💾 儲存目前版面設定」才會真正寫回伺服器，之後產圖才會套用。');
+                    } catch (err) {
+                        console.error(err);
+                        alert('版面設定檔格式錯誤，無法匯入：' + err.message);
+                    } finally {
+                        layoutImportInput.value = '';
+                    }
+                };
+                reader.readAsText(file);
+            });
+        }
     }
 
     function renderCard() {
