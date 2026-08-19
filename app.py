@@ -19,7 +19,7 @@ import zipfile
 import subprocess
 import re
 import json
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageDraw
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
@@ -38,11 +38,40 @@ RESULTS_DIR = os.path.join(app.root_path, 'results')
 TEAM_LOGO_DIR = os.path.join(app.root_path, '隊伍Logo')
 CONFIG_DIR = os.path.join(app.static_folder, 'config')
 LAYOUT_PATH = os.path.join(CONFIG_DIR, 'card_layout.json')
-TEMPLATE_IMG_PATH = os.path.join(app.static_folder, 'images', 'card_template.jpg')
+TEMPLATE_IMG_PATH = os.path.join(app.static_folder, 'images', 'card_template.png')
 os.makedirs(CARDS_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(TEAM_LOGO_DIR, exist_ok=True)
 os.makedirs(CONFIG_DIR, exist_ok=True)
+
+DEFAULT_CANVAS_WIDTH = 1559
+DEFAULT_CANVAS_HEIGHT = 1009
+
+def ensure_default_template():
+    """若模板底圖檔案遺失(誤刪/改名)，自動補一張預設底圖，避免網頁完全打不開"""
+    if os.path.exists(TEMPLATE_IMG_PATH):
+        return
+
+    width, height = DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT
+    if os.path.exists(LAYOUT_PATH):
+        try:
+            with open(LAYOUT_PATH, 'r', encoding='utf-8') as f:
+                layout = json.load(f)
+            width = int(layout.get('canvasWidth', width))
+            height = int(layout.get('canvasHeight', height))
+        except Exception:
+            pass
+
+    os.makedirs(os.path.dirname(TEMPLATE_IMG_PATH), exist_ok=True)
+    img = PILImage.new('RGB', (width, height), color='#2b2438')
+    draw = ImageDraw.Draw(img)
+    text = '請至「模板底圖」上傳正式底圖'
+    left, top, right, bottom = draw.textbbox((0, 0), text)
+    text_w, text_h = right - left, bottom - top
+    draw.text(((width - text_w) / 2, (height - text_h) / 2), text, fill='#ffffff')
+    img.save(TEMPLATE_IMG_PATH, format='PNG')
+
+ensure_default_template()
 
 def sanitize_filename(name):
     """清理 Windows 檔案名稱中的非法字元"""
@@ -101,7 +130,7 @@ def upload_team_logo():
 
 @app.route('/api/upload_template', methods=['POST'])
 def upload_template():
-    """更換卡片模板底圖：存成 static/images/card_template.jpg，並同步更新版面設定檔的畫布尺寸"""
+    """更換卡片模板底圖：存成 static/images/card_template.png，並同步更新版面設定檔的畫布尺寸"""
     try:
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': '未找到上傳圖檔'}), 400
@@ -117,7 +146,7 @@ def upload_template():
             return jsonify({'success': False, 'error': '無法辨識的圖片格式，請上傳 JPG / PNG / WEBP'}), 400
 
         os.makedirs(os.path.dirname(TEMPLATE_IMG_PATH), exist_ok=True)
-        img.save(TEMPLATE_IMG_PATH, format='JPEG', quality=95)
+        img.save(TEMPLATE_IMG_PATH, format='PNG')
         width, height = img.size
 
         # 同步更新設定檔的畫布尺寸，讓所有欄位的相對座標套用到新模板上

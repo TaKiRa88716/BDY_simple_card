@@ -1,22 +1,22 @@
 {
   "_comment": "Phase 1 config-driven card layout. All positions/sizes are fractions (0-1) of canvasWidth/canvasHeight so they stay valid if the template image is ever swapped for one with different pixel dimensions. Phase 2's GUI editor will read and overwrite this same file.",
-  "templateImage": "/static/images/card_template.jpg",
+  "templateImage": "/static/images/card_template.png",
   "canvasWidth": 1558,
   "canvasHeight": 1009,
   "logo": {
     "id": "teamLogo",
     "box": {
-      "x": 0.5544,
-      "y": 0.2003,
-      "w": 0.4055,
-      "h": 0.7165
+      "x": 0.5491954428754815,
+      "y": 0.23399999999999999,
+      "w": 0.3851091142490372,
+      "h": 0.5946481665014867
     },
     "fit": "contain",
     "placeholderText": "隊伍 LOGO",
     "placeholderColor": "#9a8fb0",
     "border": {
       "enabled": true,
-      "color": "auto",
+      "color": "#735f8b",
       "widthFrac": 0.005
     },
     "shadow": {
@@ -32,10 +32,10 @@
     "sourceKey": "idNumber",
     "format": "CODE128",
     "box": {
-      "x": 0.0372,
-      "y": 0.645,
+      "x": 0.08,
+      "y": 0.6395044598612488,
       "w": 0.13,
-      "h": 0.04
+      "h": 0.05946481665014866
     },
     "background": "#ffffff",
     "lineColor": "#1a1a1a"
@@ -49,8 +49,8 @@
       },
       "prefix": "🏐  ",
       "position": {
-        "x": 0.0319,
-        "y": 0.0617
+        "x": 0.05,
+        "y": 0.11
       },
       "align": {
         "h": "left",
@@ -72,8 +72,8 @@
         "text": "OFFICIAL ATHLETE IDENTIFICATION CARD"
       },
       "position": {
-        "x": 0.0319,
-        "y": 0.1076
+        "x": 0.05,
+        "y": 0.177
       },
       "align": {
         "h": "left",
@@ -94,8 +94,8 @@
       },
       "prefix": "#",
       "position": {
-        "x": 0.1208,
-        "y": 0.2872
+        "x": 0.145,
+        "y": 0.32
       },
       "align": {
         "h": "center",
@@ -115,8 +115,8 @@
         "key": "playerName"
       },
       "position": {
-        "x": 0.2206,
-        "y": 0.2872
+        "x": 0.24,
+        "y": 0.32
       },
       "align": {
         "h": "left",
@@ -138,7 +138,7 @@
         "text": "TEAM NAME / 隊伍名稱"
       },
       "position": {
-        "x": 0.0718,
+        "x": 0.085,
         "y": 0.4364
       },
       "align": {
@@ -159,8 +159,8 @@
         "key": "teamName"
       },
       "position": {
-        "x": 0.0718,
-        "y": 0.4841
+        "x": 0.09,
+        "y": 0.485
       },
       "align": {
         "h": "left",
@@ -182,7 +182,7 @@
         "text": "OFFICIAL REGISTERED ATHLETE SQUAD"
       },
       "position": {
-        "x": 0.0718,
+        "x": 0.085,
         "y": 0.5794
       },
       "align": {
@@ -204,8 +204,8 @@
       },
       "prefix": "ID: ",
       "position": {
-        "x": 0.0372,
-        "y": 0.6975
+        "x": 0.08,
+        "y": 0.713
       },
       "align": {
         "h": "left",
@@ -227,8 +227,8 @@
         "text": "VALID THRU"
       },
       "position": {
-        "x": 0.1885,
-        "y": 0.6725
+        "x": 0.35,
+        "y": 0.77
       },
       "align": {
         "h": "left",
@@ -248,8 +248,8 @@
         "key": "validThru"
       },
       "position": {
-        "x": 0.1885,
-        "y": 0.7275
+        "x": 0.35,
+        "y": 0.8
       },
       "align": {
         "h": "left",
@@ -269,8 +269,8 @@
         "text": "LOCATION"
       },
       "position": {
-        "x": 0.0606,
-        "y": 0.8277
+        "x": 0.08,
+        "y": 0.77
       },
       "align": {
         "h": "left",
@@ -290,8 +290,8 @@
         "key": "footerNote2"
       },
       "position": {
-        "x": 0.1511,
-        "y": 0.8277
+        "x": 0.08,
+        "y": 0.8
       },
       "align": {
         "h": "left",
@@ -306,5 +306,12 @@
       "maxWidthFrac": 0.3609,
       "minSizeFrac": 0.0141
     }
-  ]
+  ],
+  "physicalWidthMm": 88,
+  "physicalHeightMm": 56.99101412066752,
+  "trimGuide": {
+    "enabled": true,
+    "widthPx": 1452,
+    "heightPx": 903
+  }
 }
