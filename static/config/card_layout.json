@@ -49,17 +49,18 @@
       },
       "prefix": "🏐  ",
       "position": {
-        "x": 0.05,
-        "y": 0.11
+        "x": 0.046,
+        "y": 0.12
       },
       "align": {
         "h": "left",
         "v": "middle"
       },
       "font": {
-        "family": "\"Noto Sans TC\", sans-serif",
-        "weight": 900,
-        "sizeFrac": 0.0423
+        "family": "\"Orbitron\", \"Noto Sans TC\", sans-serif",
+        "weight": 700,
+        "sizeFrac": 0.04261645193260654,
+        "italic": false
       },
       "color": "#ffffff",
       "maxWidthFrac": 0.5,
@@ -72,7 +73,7 @@
         "text": "OFFICIAL ATHLETE IDENTIFICATION CARD"
       },
       "position": {
-        "x": 0.05,
+        "x": 0.06,
         "y": 0.177
       },
       "align": {
@@ -160,7 +161,7 @@
       },
       "position": {
         "x": 0.09,
-        "y": 0.485
+        "y": 0.48
       },
       "align": {
         "h": "left",
@@ -168,8 +169,9 @@
       },
       "font": {
         "family": "\"Noto Sans TC\", \"Outfit\", sans-serif",
-        "weight": 900,
-        "sizeFrac": 0.0582
+        "weight": 700,
+        "sizeFrac": 0.06937561942517344,
+        "italic": false
       },
       "color": "#1a1a1a",
       "maxWidthFrac": 0.4297,
@@ -319,7 +321,7 @@
       "id": "custom_logo_89b2e85d",
       "imageUrl": "/static/custom_elements/e877491dfb.png",
       "box": {
-        "x": 0.8583719372662834,
+        "x": 0.872,
         "y": 0.8498216055500496,
         "w": 0.060277948317240614,
         "h": 0.07928642220019821
@@ -338,10 +340,48 @@
       "id": "custom_logo_b32fe765",
       "imageUrl": "/static/custom_elements/c63936f72f.png",
       "box": {
-        "x": 0.79,
-        "y": 0.8448662041625371,
-        "w": 0.04811462998473009,
-        "h": 0.08919722497522299
+        "x": 0.813,
+        "y": 0.845,
+        "w": 0.04813863928112965,
+        "h": 0.08924173456852401
+      },
+      "fit": "contain",
+      "border": {
+        "enabled": false,
+        "color": "#4b1a8f",
+        "widthFrac": 0.005
+      },
+      "shadow": {
+        "enabled": false
+      }
+    },
+    {
+      "id": "custom_logo_ab31634b",
+      "imageUrl": "/static/custom_elements/3e00024141.png",
+      "box": {
+        "x": 0.706,
+        "y": 0.8514668117221194,
+        "w": 0.0956800505241191,
+        "h": 0.06838453914767097
+      },
+      "fit": "contain",
+      "border": {
+        "enabled": false,
+        "color": "#4b1a8f",
+        "widthFrac": 0.005
+      },
+      "shadow": {
+        "enabled": false
+      }
+    },
+    {
+      "id": "custom_logo_0e0218b2",
+      "imageUrl": "/static/custom_elements/717be3c1f3.png",
+      "box": {
+        "x": 0.623,
+        "y": 0.8290000000000001,
+        "w": 0.07124518613607189,
+        "h": 0.11000991080277503
       },
       "fit": "contain",
       "border": {
